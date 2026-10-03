@@ -1,6 +1,7 @@
 ﻿# -*- coding: utf-8 -*-
 # func.py
 from .config import *
+from .normalize import format_text
 
 import os
 import getpass
@@ -31,31 +32,6 @@ def output_log(logStr):
     # ログをファイルに出力し,30秒ごとに投稿する
     with open(SYSTEMLOG_PATH, "a+", encoding="utf-8") as file:
         file.write(logstr + "\n")
-
-def format_text(input: str) -> str:
-  '''テキストの整形(あｱＡa>アアAA)を行う
-  Parameters:
-  ----------
-  input : str
-    変換元テキスト
-
-  Returns:
-  ----------
-  fixed : str
-    変換後テキスト
-  '''
-  fixed = input
-  # ひらがなをカタカナに変換
-  fixed = jaconv.hira2kata(fixed)
-  # 半角カタカナを全角カタカナに変換
-  fixed = jaconv.h2z(fixed)
-  # 全角英数字を半角英数字に変換
-  fixed = jaconv.z2h(fixed,kana=False, ascii=True, digit=True)
-  # 英字を大文字に変換
-  fixed = fixed.upper()
-  
-  return fixed
-
 
 def fetch_pokemon(input: str) -> pd.DataFrame:
   '''ポケモン名から図鑑データを検索する
