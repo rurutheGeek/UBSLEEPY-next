@@ -146,7 +146,13 @@ python main.py
 以下はプロジェクト内の主なディレクトリの説明です：
 
 - **`bot_module`**  
-  `main.py` 内で呼び出す自作モジュールを格納します. 
+  `main.py` や Cog から呼び出す自作モジュール（設定・図鑑検索・Embedなど）を格納します. 
+
+- **`cogs`**  
+  機能ごとの Cog を格納します（`pokedex` / `quiz` / `daily` / `calls` / `auth` / `admin`）. `main.py` は起動と読み込みだけを行います. 
+
+- **`tests`**  
+  pytest のテストを格納します. 
 
 - **`resource`**  
   ポケモン図鑑（例: `pokemon_database.csv`）やBotで使用する画像ファイルを格納します. 
