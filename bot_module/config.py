@@ -10,8 +10,6 @@ bot_module.settings.get_settings() を使ってよい。旧コードは今まで
 """
 import sys
 
-import discord
-from discord.ext import commands
 import pandas as pd
 
 from .settings import load_settings
@@ -73,12 +71,6 @@ WEAK_DICT = SETTINGS.weak_dict
 TYPE_COLOR_DICT = SETTINGS.type_color_dict
 PRIZE_DICT = SETTINGS.prize_dict
 DEFAULT_FILTER_DICT = SETTINGS.default_filter_dict
-
-client = commands.Bot(
-    command_prefix=commands.when_mentioned,
-    intents=discord.Intents.all(),
-    activity=discord.Activity(name="研修チュウ", type=discord.ActivityType.unknown),
-)
 
 
 def load_config():

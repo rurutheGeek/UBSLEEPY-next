@@ -202,7 +202,7 @@ def generate_graph(bss: list[int], name=None) -> str:
 
 
 #レポートしたり参照する関数 ユーザーIDとレポのインデックスを渡す modifiは増減値
-def report(userId, repoIndex: str, modifi: int) -> int:
+def report(userId, repoIndex: str, modifi: int, userName: str) -> int:
   '''レポートを行う
   Parameters:
   ----------
@@ -212,7 +212,9 @@ def report(userId, repoIndex: str, modifi: int) -> int:
   レポートのインデックス
   modifi : int
   増減値
-  
+  userName : str
+  新規行を作るときに記録するユーザー名
+
   Returns:
   ----------
   int
@@ -230,16 +232,15 @@ def report(userId, repoIndex: str, modifi: int) -> int:
   if userId in reports.index:
     row = reports.loc[userId]
   else:
-    user = client.get_user(userId)
     row = pd.DataFrame([[0] * len(reports.columns)], columns=reports.columns, index=[userId])
     #先頭列のID以外の初期値を入力
     #reports = reports.append(row)
     reports = pd.concat([reports, row], ignore_index=False)
     
-    reports.loc[userId, 'ユーザー名']=user.name
+    reports.loc[userId, 'ユーザー名']=userName
     reports.loc[userId, 'クジびきけん']=1  # レポートに新しい行を追加
     output_log("新たなレポートを作成しました")
-    
+  
   if not repoIndex in ['ユーザーID','ユーザー名'] and not modifi == 0 :
     reports.loc[userId, repoIndex] += modifi
     reports.to_csv(REPORT_PATH, index=True, index_label="ユーザーID", float_format="%.0f") # 編集したデータをCSVファイルに書き込む
