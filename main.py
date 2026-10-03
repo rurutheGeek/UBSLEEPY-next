@@ -33,7 +33,8 @@ import bot_module.embed as ub_embed
 os.chdir(os.path.dirname(os.path.abspath(__file__)))
 
 # クライアントを作成
-tree = discord.app_commands.CommandTree(client)
+# コマンドツリーはBotが持つものを使う（Cogのコマンドもここに載る）
+tree = client.tree
 
 # ===================================================================================================
 # 起動時の処理
