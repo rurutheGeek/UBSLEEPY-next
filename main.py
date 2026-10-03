@@ -700,40 +700,6 @@ async def slash_devtest(
     )
 
 
-# 使用注意!デバッグモード時のtokenを知っている管理者しか実行できない
-@tree.command(name="devcmd", description="開発者用コンソールを呼び出す")
-@discord.app_commands.describe(key="キーワード", value="コマンド")
-@discord.app_commands.guilds(*[discord.Object(id=guild_id) for guild_id in GUILD_IDS])
-@discord.app_commands.default_permissions(administrator=True)
-async def slash_devcmd(interaction: discord.Interaction, key: str, value: str):
-    if not interaction.user.guild_permissions.administrator:
-        await interaction.response.send_message(
-            f"管理者権限がありません", ephemeral=True
-        )
-    elif not DEBUG_MODE:
-        await interaction.response.send_message(
-            f"デバッグモードでのみ使用可能です", ephemeral=True
-        )
-    elif not key == os.environ.get("DISCORD_TOKEN"):
-        await interaction.response.send_message(f"keyが違います", ephemeral=True)
-    else:
-        ub.output_log(f"コンソールが呼び出されました: {interaction.user.name}")
-        ub.output_log(f"cmd: `{value}`")
-        try:
-            # 文字列にawaitが入っている場合 awaitを取り除きawait evalする
-            if value.startswith("await"):
-                await eval(value.split("await ")[1])
-            else:
-                eval(value)
-            await interaction.response.send_message(
-                f"`{value}`\n実行完了", ephemeral=True
-            )
-        except Exception as e:
-            await interaction.response.send_message(
-                f"`{value}`\nエラーが発生しました\n```{e}```", ephemeral=True
-            )
-
-
 @tree.command(name="devlogin", description="ログイン投稿をテストします")
 @discord.app_commands.describe(channel="投稿するチャンネル")
 @discord.app_commands.guilds(*[discord.Object(id=guild_id) for guild_id in GUILD_IDS])
