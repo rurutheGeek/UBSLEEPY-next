@@ -3,13 +3,11 @@
 from .config import *
 from .logging_setup import logger
 from .normalize import format_text
+from .pokedex import EVOLUTION_STAGES, Pokemon, get_pokedex
 
 import os
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
-import random
-import re
-import jaconv
 import pypinyin
 import pandas as pd
 import numpy as np
@@ -35,88 +33,35 @@ def output_error(logStr):
     """エラー。Discordのログチャンネルへ送られる。"""
     logger.error(logStr)
 
-_POKEMON_NAME_INDEX = None
-
-
-def _pokemon_name_index():
-  '''正規化した名前・別名 → 図鑑の行番号の辞書を一度だけ作る
-
-  毎回1208行×4列をカタカナ変換していたのをやめるための索引。
-  同じ別名が複数行にある場合は、行の順にすべて持つ。
-  '''
-  global _POKEMON_NAME_INDEX
-  if _POKEMON_NAME_INDEX is None:
-    index = {}
-    name_columns = ['おなまえ', 'インデックス1', 'インデックス2', 'インデックス3']
-    for row_index, row in GLOBAL_BRELOOM_DF.iterrows():
-      row_names = set()
-      for column in name_columns:
-        value = row[column]
-        if pd.isna(value):
-          continue
-        name = jaconv.hira2kata(str(value))
-        if name:
-          row_names.add(name)
-      for name in row_names:
-        index.setdefault(name, []).append(row_index)
-    _POKEMON_NAME_INDEX = index
-  return _POKEMON_NAME_INDEX
-
-
-def fetch_pokemon(input: str) -> pd.DataFrame:
+def fetch_pokemon(input: str) -> list[Pokemon]:
   '''ポケモン名から図鑑データを検索する
   Parameters:
   ----------
   input : str
     検索するポケモン名
+
+  Returns:
+  ----------
+  list[Pokemon]
+    見つかったポケモン。見つからなければ空のリスト。
   '''
   output_log(str(input)+"の図鑑データを検索します")
-  fixedName = format_text(input)
-  
-  #入力文字列先頭を辞書で置換
-  if fixedName and fixedName[0] in POKENAME_PREFIX_DICT and re.match(r'[ァ-ヺー]+',fixedName[1:]):
-    fixedName = POKENAME_PREFIX_DICT[fixedName[0]] + fixedName[1:]
-
-  row_indexes = _pokemon_name_index().get(fixedName)
-  if row_indexes:
-    return GLOBAL_BRELOOM_DF.iloc[row_indexes]
-  else:
-    output_log(fixedName+"の図鑑データは見つかりませんでした")
-    return None
-
-
-def filter_dataframe(filter_dict):
-  '''ポケモンの図鑑データをフィルタリングする
-  Parameters:
-  ----------
-  filter_dict : dict
-    フィルタリング条件の辞書
-  '''
-  output_log("以下の条件でデータベースをフィルタリングします\n "+str(filter_dict))
-  filteredPokeData = GLOBAL_BRELOOM_DF.copy()
-  
-  for key, value in filter_dict.items():
-    if key == 'タイプ':
-      filteredPokeData = filteredPokeData[(filteredPokeData['タイプ1'].isin(value)) | (filteredPokeData['タイプ2'].isin(value))]
-    elif key == '特性':
-      filteredPokeData = filteredPokeData[(filteredPokeData['特性1'].isin(value)) | (filteredPokeData['特性2'].isin(value)) | (filteredPokeData['隠れ特性'].isin(value))]
-    elif value[0].isdecimal():
-      filteredPokeData = filteredPokeData[filteredPokeData[key].isin([int(v) for v in value])]
-    else:
-      filteredPokeData = filteredPokeData[filteredPokeData[key].isin(value)]
-      
-  output_log("データのフィルタリングが完了しました 取得行数: "+str(filteredPokeData.shape[0]))
-  return filteredPokeData
+  found = get_pokedex().find(input)
+  if not found:
+    output_log(format_text(input)+"の図鑑データは見つかりませんでした")
+  return found
 
 
 def bss_to_text(values) -> str:
   '''ポケモンの図鑑データから種族値文字列を生成する
   Parameters:
   ----------
-  values : list or pd.Series or pd.DataFrame
-    種族値のリスト or 種族値のSeries or 種族値のDataFrame
+  values : Pokemon or list or pd.Series or pd.DataFrame
+    種族値のリスト or Pokemon or 種族値のSeries or 種族値のDataFrame
   '''
-  if isinstance(values, list):
+  if isinstance(values, Pokemon):
+    bss = list(values.stats)
+  elif isinstance(values, list):
     bss = values
   elif isinstance(values, pd.Series):
     bss = [int(values['HP']), int(values['こうげき']), int(values['ぼうぎょ']), int(values['とくこう']), int(values['とくぼう']), int(values['すばやさ'])]
@@ -279,17 +224,18 @@ def report(userId, repoIndex: str, modifi: int, userName: str) -> int:
 #除外検索できるようにしたい 語頭のマイナスを検知,フラグを立てる
 def make_filter_dict(values: list[str]) -> dict[str,str]:
   output_log("以下の項目でフィルタ辞書を生成します\n "+str(values))
-  
+
+  pokedex = get_pokedex()
   new_dict={}
   #valueがどのインデックスに該当するか検索
   for i in range(len(values)):
-    if values[i] in GLOBAL_BRELOOM_DF['進化段階'].unique().tolist():
+    if values[i] in EVOLUTION_STAGES:
       dictIndex='進化段階'
     elif values[i] in ['1','2','3','4','5','6','7','8','9']:
       dictIndex='初登場世代'
-    elif values[i] in GLOBAL_BRELOOM_DF['出身地'].unique().tolist():
+    elif values[i] in pokedex.regions():
       dictIndex='出身地'
-    elif values[i] in GLOBAL_BRELOOM_DF['タイプ1'].unique().tolist():
+    elif values[i] in pokedex.types():
       dictIndex='タイプ'
     elif values[i].upper().startswith(tuple(BASE_STATS_DICT.keys())):
       for key in BASE_STATS_DICT.keys():
@@ -297,7 +243,7 @@ def make_filter_dict(values: list[str]) -> dict[str,str]:
           dictIndex = BASE_STATS_DICT[key]
           values[i] = values[i][len(key):]  # 数字の部分だけを抜き出す
           break
-    elif values[i] in np.unique(GLOBAL_BRELOOM_DF[['特性1','特性2','隠れ特性']].astype(str).values.ravel()):
+    elif values[i] in pokedex.abilities():
       dictIndex='特性'
     else:
       continue
@@ -354,8 +300,9 @@ def show_calendar(day: datetime = datetime.now(ZoneInfo("Asia/Tokyo"))) -> disco
         calendarDescription += f"> **{row['日付'].year}年 {row['できごと']}**\nあれから{day.year - row['日付'].year}年\n"
       calendarDescription += f"関連リンク\n{row['関連リンク']}\n"
     if not (eventPokemon := matched_rows.iloc[0]["関連ポケモン"])=="":
-      eventDexNum = fetch_pokemon(eventPokemon).iloc[0]["ぜんこくずかんナンバー"]
-      thumbnailLink = f"{EX_SOURCE_LINK}art/{eventDexNum}.png"
+      eventPokeData = fetch_pokemon(eventPokemon)
+      if eventPokeData:
+        thumbnailLink = f"{EX_SOURCE_LINK}art/{eventPokeData[0].image_number}.png"
   else:
     calendarDescription = "なんにもない すばらしい 一日"
     
@@ -394,8 +341,8 @@ def show_senryu(unique: bool = False) -> discord.Embed:
 
   if not selectedSenryu.iloc[0]['登場ポケモン'] == '':
     senryuPokeData = fetch_pokemon(selectedSenryu.iloc[0]['登場ポケモン'])
-    senryuDexNum = senryuPokeData.iloc[0]['ぜんこくずかんナンバー']
-    createdEmbed.set_thumbnail(url=f"{EX_SOURCE_LINK}art/{senryuDexNum}.png")
+    if senryuPokeData:
+      createdEmbed.set_thumbnail(url=f"{EX_SOURCE_LINK}art/{senryuPokeData[0].image_number}.png")
     
   return createdEmbed
 

@@ -6,12 +6,10 @@
 bot_module.settings.get_settings() を使ってよい。旧コードは今までどおり
 `from bot_module.config import *` で参照できる。
 
-ここに残っているのは移行の途中経過で、Cog分割が済んだら整理する。
+図鑑データは bot_module.pokedex が持つ。ここには置かない。
 """
 import copy
 import sys
-
-import pandas as pd
 
 from .settings import load_settings
 
@@ -19,13 +17,6 @@ from .settings import load_settings
 # グローバル変数の宣言
 DEBUG_MODE = len(sys.argv) > 1 and sys.argv[1] == "debug"
 SETTINGS = load_settings(debug=DEBUG_MODE)
-
-# 実行時の状態（設定ではない）
-QUIZ_PROCESSING_FLAG = 0  # クイズ処理中フラグ
-BAKUSOKU_MODE = True
-GLOBAL_BRELOOM_DF = None
-BQ_FILTERED_DF = None
-BQ_FILTER_DICT = {}
 
 # config.json（document/default_config.json）から読み取る変数
 DEVELOPER_USER_ID = SETTINGS.ids.developer_user_id
@@ -71,20 +62,3 @@ WEAK_DICT = SETTINGS.weak_dict
 TYPE_COLOR_DICT = SETTINGS.type_color_dict
 PRIZE_DICT = SETTINGS.prize_dict
 DEFAULT_FILTER_DICT = copy.deepcopy(SETTINGS.default_filter_dict)
-
-
-def load_config():
-    """図鑑データとクイズの絞り込み状態を読み直す。"""
-    global GLOBAL_BRELOOM_DF, BQ_FILTERED_DF, BQ_FILTER_DICT
-
-    # グローバルずかんデータを用意
-    GLOBAL_BRELOOM_DF = pd.read_csv(POKEDEX_PATH)
-    GLOBAL_BRELOOM_DF["ぜんこくずかんナンバー"] = GLOBAL_BRELOOM_DF[
-        "ぜんこくずかんナンバー"
-    ].apply(lambda x: str(int(x)) if x.is_integer() else str(x))
-    BQ_FILTERED_DF = GLOBAL_BRELOOM_DF.copy()
-    BQ_FILTER_DICT = copy.deepcopy(DEFAULT_FILTER_DICT)
-
-
-# config.jsonを読み込む
-load_config()

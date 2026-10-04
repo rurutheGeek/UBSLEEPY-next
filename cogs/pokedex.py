@@ -12,6 +12,7 @@ from PIL import Image
 import bot_module.config as cfg
 import bot_module.embed as ub_embed
 import bot_module.func as ub
+from bot_module.pokedex import get_pokedex
 
 GUILDS = [discord.Object(id=guild_id) for guild_id in cfg.GUILD_IDS]
 
@@ -41,31 +42,26 @@ class Pokedex(commands.Cog):
         message : discord.Message, optional
             更新する既存のメッセージ（ボタン操作時）
         """
-        if (pokedata := ub.fetch_pokemon(name)) is not None:  # データが存在する場合は、図鑑データを返信
-            pokedata = pokedata.fillna(" ")
-            dexNumber = pokedata.iloc[0]['ぜんこくずかんナンバー']
-            dexName = str(pokedata.iloc[0]['おなまえ'])
-            dexIndexs = [pokedata.iloc[0]['インデックス1'], pokedata.iloc[0]['インデックス2'], pokedata.iloc[0]['インデックス3']]
-            dexType1 = str(pokedata.iloc[0]['タイプ1'])
-            dexType2 = str(pokedata.iloc[0]['タイプ2'])
-            dexAbi1 = str(pokedata.iloc[0]['特性1'])
-            dexAbi2 = str(pokedata.iloc[0]['特性2'])
-            dexAbiH = str(pokedata.iloc[0]['隠れ特性'])
-            dexH = int(pokedata.iloc[0]['HP'])
-            dexA = int(pokedata.iloc[0]['こうげき'])
-            dexB = int(pokedata.iloc[0]['ぼうぎょ'])
-            dexC = int(pokedata.iloc[0]['とくこう'])
-            dexD = int(pokedata.iloc[0]['とくぼう'])
-            dexS = int(pokedata.iloc[0]['すばやさ'])
-            dexSum = int(pokedata.iloc[0]['合計'])
-            dexGen = str(pokedata.iloc[0]['初登場作品'])
+        pokedex = get_pokedex()
+        if found := pokedex.find(name):  # データが存在する場合は、図鑑データを返信
+            poke = found[0]
+            dexNumber = poke.display_number
+            dexName = poke.name
+            dexType1 = poke.type_1 or "なし"
+            dexType2 = poke.type_2 or "なし"
+            dexAbi1 = poke.ability_1 or "なし"
+            dexAbi2 = poke.ability_2 or "なし"
+            dexAbiH = poke.ability_h or "なし"
+            dexH, dexA, dexB, dexC, dexD, dexS = poke.stats
+            dexSum = poke.total
+            dexGen = poke.first_title or "不明"
 
             emoji = "🔴"
 
             # Embed作成
             dexEmbed = discord.Embed(
                 title=f'{emoji}{dexName}の図鑑データ{emoji}',
-                color=cfg.TYPE_COLOR_DICT.get(dexType1, 0xdcdcdc),
+                color=cfg.TYPE_COLOR_DICT.get(poke.type_1, 0xdcdcdc),
                 description=f'''No.{dexNumber} {dexName} 出身: {dexGen}
 タイプ: {dexType1}/{dexType2}
 とくせい: {dexAbi1}/{dexAbi2}/{dexAbiH}
@@ -81,43 +77,31 @@ class Pokedex(commands.Cog):
             )
 
             # サムネイル設定
-            dexEmbed.set_thumbnail(url=f'{cfg.EX_SOURCE_LINK}art/{dexNumber}.png')
-
-            # インデックス情報の追加
-            aliases = []
-            for dexIndex in dexIndexs:
-                if not dexIndex == " ":
-                    aliases.append(str(dexIndex))
+            dexEmbed.set_thumbnail(url=f'{cfg.EX_SOURCE_LINK}art/{poke.image_number}.png')
 
             # 別名フィールドを追加
-            if aliases:
-                dexEmbed.add_field(name="登録済の別名", value=", ".join(aliases), inline=False)
+            if poke.aliases:
+                dexEmbed.add_field(name="登録済の別名", value=", ".join(poke.aliases), inline=False)
             else:
                 dexEmbed.add_field(name="登録済の別名", value="なし", inline=False)
 
             # 種族値グラフの生成と設定
-            bss = [dexH, dexA, dexB, dexC, dexD, dexS]
-            graph_path = ub.generate_graph(bss=bss, name=dexName)
+            graph_path = ub.generate_graph(bss=list(poke.stats), name=dexName)
             filename = f"basestats_{dexNumber}_{jaconv.kata2alphabet(jaconv.hira2kata(dexName)).lower()}.png"
             attach_graph = discord.File(graph_path, filename=filename)
             dexEmbed.set_image(url=f"attachment://{filename}")
 
             dexEmbed.set_footer(text=f'No.25 ポケモン図鑑 - {dexNumber}')
 
-            current_dex_num = float(dexNumber)
-            base_dex_num = int(current_dex_num)  # 小数点以下を切り捨てて基本図鑑番号を取得
-            prev_dex_num = str(base_dex_num - 1)
-            next_dex_num = str(base_dex_num + 1)
+            base_dex_num = poke.species
+            prev_dex_num = str(int(base_dex_num) - 1)
+            next_dex_num = str(int(base_dex_num) + 1)
 
             # ナビゲーションボタンを持つViewの作成
             dex_view = discord.ui.View()
 
             # 同じ基本図鑑番号を持つポケモン（姿違い）を検索
-            # 例: 58.0, 58.1 など同じ基本図鑑番号を持つポケモン
-            form_pattern = f'^{base_dex_num}(\\.\\d+)?$'
-            form_variants = cfg.GLOBAL_BRELOOM_DF[
-                cfg.GLOBAL_BRELOOM_DF["ぜんこくずかんナンバー"].str.match(form_pattern)
-            ]
+            form_variants = pokedex.variants(base_dex_num)
 
             # 姿違いの選択肢がある場合はセレクトメニューを用意
             has_variants = len(form_variants) > 1
@@ -130,33 +114,21 @@ class Pokedex(commands.Cog):
                     custom_id=f"dex_form:{base_dex_num}",
                     options=[
                         discord.SelectOption(
-                            label=row["おなまえ"],
-                            value=row["ぜんこくずかんナンバー"],
-                            default=row["ぜんこくずかんナンバー"] == dexNumber
-                        ) for _, row in form_variants.iterrows()
+                            label=variant.name,
+                            value=variant.display_number,
+                            default=variant.display_number == dexNumber
+                        ) for variant in form_variants
                     ]
                 )
                 dex_view.add_item(form_select)
 
-            # GLOBAL_BRELOOM_DFから一度のクエリで前後のポケモンを取得
-            adjacent_pokemon = cfg.GLOBAL_BRELOOM_DF[
-                cfg.GLOBAL_BRELOOM_DF["ぜんこくずかんナンバー"].isin([prev_dex_num, next_dex_num])
-            ]
-
             # 前後のポケモンの存在確認と名前取得
-            has_prev = False
-            has_next = False
-            prev_name = ""
-            next_name = ""
-
-            if not adjacent_pokemon.empty:
-                for _, row in adjacent_pokemon.iterrows():
-                    if row["ぜんこくずかんナンバー"] == prev_dex_num:
-                        has_prev = True
-                        prev_name = row["おなまえ"]
-                    elif row["ぜんこくずかんナンバー"] == next_dex_num:
-                        has_next = True
-                        next_name = row["おなまえ"]
+            prev_poke = pokedex.base(prev_dex_num)
+            next_poke = pokedex.base(next_dex_num)
+            has_prev = prev_poke is not None
+            has_next = next_poke is not None
+            prev_name = prev_poke.name if prev_poke else ""
+            next_name = next_poke.name if next_poke else ""
 
             # 前のポケモンへのボタン
             prev_button = discord.ui.Button(
@@ -233,27 +205,20 @@ class Pokedex(commands.Cog):
         # 全ポケモンのデータ取得
         for name in pokemon_names:
             poke_data = ub.fetch_pokemon(name)
-            if poke_data is None:
+            if not poke_data:
                 ub.output_log(f"404 NotFound: {name}")
                 await interaction.followup.send(embed=ub_embed.error_404(name))
                 return
 
-            poke_name = poke_data.iloc[0]['おなまえ']
-            bss = [
-                int(poke_data.iloc[0]['HP']),
-                int(poke_data.iloc[0]['こうげき']),
-                int(poke_data.iloc[0]['ぼうぎょ']),
-                int(poke_data.iloc[0]['とくこう']),
-                int(poke_data.iloc[0]['とくぼう']),
-                int(poke_data.iloc[0]['すばやさ'])
-            ]
-
-            dexnum = poke_data.iloc[0]['ぜんこくずかんナンバー']
+            poke = poke_data[0]
+            poke_name = poke.name
+            bss = list(poke.stats)
+            dexnum = poke.display_number
             dexnum_list.append(dexnum)
 
             pokemon_data[poke_name] = {
                 'bss': bss,
-                'data': poke_data
+                'data': poke
             }
 
         # 一時ファイルのパスを用意
@@ -367,23 +332,17 @@ class Pokedex(commands.Cog):
 
         # 入力ポケモンのデータ取得
         base_pokemon = ub.fetch_pokemon(name)
-        if base_pokemon is None:
+        if not base_pokemon:
             ub.output_log(f"404 NotFound: {name}")
             await interaction.followup.send(embed=ub_embed.error_404(name))
             return
 
         # 基準ポケモンの情報を取得
-        base_name = base_pokemon.iloc[0]['おなまえ']
-        base_dexnum = base_pokemon.iloc[0]['ぜんこくずかんナンバー']
-        base_evolution = base_pokemon.iloc[0]['進化段階']
-        base_bss = np.array([
-            int(base_pokemon.iloc[0]['HP']),
-            int(base_pokemon.iloc[0]['こうげき']),
-            int(base_pokemon.iloc[0]['ぼうぎょ']),
-            int(base_pokemon.iloc[0]['とくこう']),
-            int(base_pokemon.iloc[0]['とくぼう']),
-            int(base_pokemon.iloc[0]['すばやさ'])
-        ])
+        base = base_pokemon[0]
+        base_name = base.name
+        base_dexnum = base.display_number
+        base_evolution = base.evolution_stage
+        base_bss = np.array(base.stats)
 
         # 固定表示数
         limit = 20
@@ -392,49 +351,51 @@ class Pokedex(commands.Cog):
         if evolution == "auto":
             # 入力されたポケモンの進化段階に基づいてフィルタリング
             if base_evolution in ['最終進化', '進化しない']:
-                filtered_df = cfg.GLOBAL_BRELOOM_DF[cfg.GLOBAL_BRELOOM_DF['進化段階'].isin(['最終進化', '進化しない'])]
+                evolution_stages = ['最終進化', '進化しない']
                 evolution_text = "最終進化または進化しない"
             else:  # 中間進化や進化前
-                filtered_df = cfg.GLOBAL_BRELOOM_DF[cfg.GLOBAL_BRELOOM_DF['進化段階'].isin(['第一進化', '進化前'])]
+                evolution_stages = ['第一進化', '進化前']
                 evolution_text = "中間進化または進化前"
         elif evolution == "final":
-            filtered_df = cfg.GLOBAL_BRELOOM_DF[cfg.GLOBAL_BRELOOM_DF['進化段階'].isin(['最終進化', '進化しない'])]
+            evolution_stages = ['最終進化', '進化しない']
             evolution_text = "最終進化または進化しない"
         elif evolution == "middle":
-            filtered_df = cfg.GLOBAL_BRELOOM_DF[cfg.GLOBAL_BRELOOM_DF['進化段階'].isin(['第一進化', '進化前'])]
+            evolution_stages = ['第一進化', '進化前']
             evolution_text = "中間進化または進化前"
         else:  # "all"
-            filtered_df = cfg.GLOBAL_BRELOOM_DF
+            evolution_stages = None
             evolution_text = "すべての"
+
+        pokedex = get_pokedex()
+        if evolution_stages is None:
+            filtered_pokemon = pokedex.records
+        else:
+            filtered_pokemon = [
+                p for p in pokedex.records
+                if p.evolution_stage in evolution_stages
+            ]
 
         ub.output_log(f"種族値類似度ランキングを実行します: {base_name} ({evolution_text}ポケモン上位{limit}匹)")
 
         # 全ポケモンとの類似度を計算
         similarity_data = []
-        for _, row in filtered_df.iterrows():
+        for poke in filtered_pokemon:
             # 同じポケモンはスキップ
-            if row['おなまえ'] == base_name:
+            if poke.display_number == base_dexnum:
                 continue
 
             # 種族値を取得
-            comp_bss = np.array([
-                int(row['HP']),
-                int(row['こうげき']),
-                int(row['ぼうぎょ']),
-                int(row['とくこう']),
-                int(row['とくぼう']),
-                int(row['すばやさ'])
-            ])
+            comp_bss = np.array(poke.stats)
 
             # ユークリッド距離で類似度を計算 (値が小さいほど似ている)
             distance = np.sqrt(np.sum((base_bss - comp_bss) ** 2))
 
             similarity_data.append({
-                'name': row['おなまえ'],
-                'dexnum': row['ぜんこくずかんナンバー'],
+                'name': poke.name,
+                'dexnum': poke.display_number,
                 'distance': distance,
                 'bss': comp_bss,
-                'evolution': row['進化段階']
+                'evolution': poke.evolution_stage
             })
 
         # 距離でソート (小さい順 = 類似度が高い順)
@@ -563,20 +524,17 @@ class Pokedex(commands.Cog):
             return
 
         if data.get("component_type") == 3 and custom_id.startswith("dex_form:"):
-            base_dex_num = custom_id.split(":")[1]
             selected_form = data["values"][0]  # 選択された姿違いの図鑑番号
 
             # 選択された姿違いのポケモンデータを取得
-            form_data = cfg.GLOBAL_BRELOOM_DF[cfg.GLOBAL_BRELOOM_DF["ぜんこくずかんナンバー"] == selected_form]
+            form_data = get_pokedex().get(selected_form)
 
-            if not form_data.empty:
-                selected_name = form_data.iloc[0]["おなまえ"]
-
+            if form_data is not None:
                 # 応答を延期
                 await interaction.response.defer()
 
                 # 共通関数を使用して表示
-                await self.display_pokedex(interaction, selected_name, interaction.message)
+                await self.display_pokedex(interaction, form_data.name, interaction.message)
             else:
                 await interaction.response.send_message("該当するポケモンが見つかりませんでした", ephemeral=True)
 
@@ -596,16 +554,14 @@ class Pokedex(commands.Cog):
                 target_number = str(int(float(current_number)) + 1)
 
             # 目的のポケモンデータを取得
-            target_data = cfg.GLOBAL_BRELOOM_DF[cfg.GLOBAL_BRELOOM_DF["ぜんこくずかんナンバー"] == target_number]
+            target_data = get_pokedex().base(target_number)
 
-            if len(target_data) > 0:
-                target_name = target_data.iloc[0]["おなまえ"]
-
+            if target_data is not None:
                 # 応答を延期
                 await interaction.response.defer()
 
                 # 共通関数を使用して表示
-                await self.display_pokedex(interaction, target_name, interaction.message)
+                await self.display_pokedex(interaction, target_data.name, interaction.message)
             else:
                 await interaction.response.send_message("該当するポケモンが見つかりませんでした", ephemeral=True)
 
