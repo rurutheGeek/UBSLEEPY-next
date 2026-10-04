@@ -59,41 +59,36 @@ def test_make_filter_dict_drops_unknown_words():
 
 def test_fetch_pokemon_by_name():
     result = ub.fetch_pokemon("ぴかちゅう")
-    assert result is not None
-    assert result.iloc[0]["おなまえ"] == "ピカチュウ"
-    assert result.iloc[0]["ぜんこくずかんナンバー"] == "25"
+    assert result
+    assert result[0].name == "ピカチュウ"
+    assert result[0].display_number == "25"
 
 
 def test_fetch_pokemon_by_index_alias():
     result = ub.fetch_pokemon("ピカチュー")
-    assert result is not None
-    assert result.iloc[0]["おなまえ"] == "ピカチュウ"
+    assert result
+    assert result[0].name == "ピカチュウ"
 
 
 def test_fetch_pokemon_not_found():
-    assert ub.fetch_pokemon("でんきだま") is None
+    assert ub.fetch_pokemon("でんきだま") == []
 
 
 def test_fetch_pokemon_empty_input():
-    assert ub.fetch_pokemon("") is None
+    assert ub.fetch_pokemon("") == []
 
 
 def test_fetch_pokemon_shared_alias_returns_all_rows():
     result = ub.fetch_pokemon("ミライテラキオン")
-    assert result is not None
-    assert result["おなまえ"].tolist() == ["テツノイワオ", "テツノカシラ"]
+    assert [poke.name for poke in result] == ["テツノイワオ", "テツノカシラ"]
 
 
-def test_pokemon_name_index_is_cached():
-    first = ub._pokemon_name_index()
-    assert first is ub._pokemon_name_index()
+def test_filter_by_type():
+    from bot_module.pokedex import get_pokedex
 
-
-def test_filter_dataframe_by_type():
-    filtered = ub.filter_dataframe({"タイプ": ["はがね"]})
-    assert not filtered.empty
-    matched = (filtered["タイプ1"] == "はがね") | (filtered["タイプ2"] == "はがね")
-    assert matched.all()
+    filtered = get_pokedex().filter({"タイプ": ["はがね"]})
+    assert filtered
+    assert all("はがね" in poke.types for poke in filtered)
 
 
 def test_report_creates_row_with_given_user_name(tmp_path, monkeypatch):

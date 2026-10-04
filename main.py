@@ -15,6 +15,7 @@ from dotenv import load_dotenv  # type: ignore
 from bot_module.config import DEBUG_MODE, GUILD_IDS
 import bot_module.func as ub
 from bot_module.logging_setup import setup_logging
+from bot_module.pokedex import get_pokedex
 
 # main.pyのディレクトリに移動
 os.chdir(os.path.dirname(os.path.abspath(__file__)))
@@ -41,6 +42,8 @@ class UBSleepy(commands.Bot):
         )
 
     async def setup_hook(self):
+        # 図鑑カタログを先に読み込む（pkdbが無ければCSV）
+        get_pokedex()
         for cog in COGS:
             await self.load_extension(cog)
 

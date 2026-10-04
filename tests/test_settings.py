@@ -65,5 +65,4 @@ def test_config_module_exposes_legacy_names():
     assert config.SETTINGS.guild.quiz_channel_id == config.QUIZ_CHANNEL_ID
     assert config.SETTINGS.paths.pokedex == config.POKEDEX_PATH
     assert config.GUILD_IDS is config.SETTINGS.ids.guild_ids
-    assert config.BQ_FILTER_DICT == config.DEFAULT_FILTER_DICT
-    assert config.BQ_FILTER_DICT is not config.DEFAULT_FILTER_DICT
+    assert config.DEFAULT_FILTER_DICT == {"進化段階": ["最終進化", "進化しない"]}

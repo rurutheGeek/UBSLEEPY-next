@@ -128,9 +128,11 @@ pip install --no-cache-dir -r ./setup/requirements.txt
   - 必須:  `.env`
 ```.env
 DISCORD_TOKEN=ここにDiscordBotのトークン
+# 任意: 設定すると図鑑をpkdb（PostgreSQL）から読む。未設定ならCSVを使う
+PKDB_PASSWORD=図鑑DBの読み取り用パスワード
 ```
 - resource ディレクトリに以下のファイルを配置してください：
-  - 必須: `pokemon_database.csv`
+  - `pokemon_database.csv`: `PKDB_PASSWORD` が未設定のときの図鑑データ（設定時はpkdbが優先）
   - オプション: `pokemon_senryu.csv` や `pokemon_calendar.csv`（データを使用する場合は配置）. 
 
 ### 4. Botを起動する

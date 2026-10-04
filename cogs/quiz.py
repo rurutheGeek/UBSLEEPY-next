@@ -13,8 +13,14 @@ import pandas as pd
 
 import bot_module.config as cfg
 import bot_module.func as ub
+from bot_module.pokedex import get_pokedex
 
 GUILDS = [discord.Object(id=guild_id) for guild_id in cfg.GUILD_IDS]
+
+# 実行時の状態（configから移した）
+BQ_FILTER_DICT = copy.deepcopy(cfg.DEFAULT_FILTER_DICT)  # 現在の出題条件
+BAKUSOKU_MODE = True  # 連続出題モード
+QUIZ_PROCESSING_FLAG = 0  # 回答開示処理中フラグ
 
 
 class Quiz(commands.Cog):
@@ -25,8 +31,8 @@ class Quiz(commands.Cog):
 
     @commands.Cog.listener()
     async def on_ready(self):
-        # 起動時と再接続時に、現在の出題条件でフィルタ済みの図鑑を用意する
-        cfg.BQ_FILTERED_DF = ub.filter_dataframe(cfg.BQ_FILTER_DICT).fillna("なし")
+        # 起動時と再接続時に図鑑カタログを用意する（pkdbが無ければCSV）
+        get_pokedex()
 
     @discord.app_commands.command(name="q", description="現在の出題設定に基づいてクイズを出題します")
     @discord.app_commands.guilds(*GUILDS)
@@ -92,15 +98,16 @@ class Quiz(commands.Cog):
         ]
     )
     async def bmode(self, interaction: discord.Interaction, mode: str = None):
+        global BAKUSOKU_MODE
         if mode == "ON":
-            cfg.BAKUSOKU_MODE = True
+            BAKUSOKU_MODE = True
         elif mode == "OFF":
-            cfg.BAKUSOKU_MODE = False
+            BAKUSOKU_MODE = False
         else:
-            cfg.BAKUSOKU_MODE = not cfg.BAKUSOKU_MODE
-        ub.output_log("爆速モードが" + str(cfg.BAKUSOKU_MODE) + "になりました")
+            BAKUSOKU_MODE = not BAKUSOKU_MODE
+        ub.output_log("爆速モードが" + str(BAKUSOKU_MODE) + "になりました")
         await interaction.response.send_message(
-            f"連続出題が{'ON' if cfg.BAKUSOKU_MODE else 'OFF'}になりました"
+            f"連続出題が{'ON' if BAKUSOKU_MODE else 'OFF'}になりました"
         )
 
     # メッセージの送受信を観測したときの処理
@@ -110,6 +117,7 @@ class Quiz(commands.Cog):
             return
 
         if message.content.startswith("/bqdata"):
+            global BQ_FILTER_DICT
             bqFilterWords = message.content.split()[1:]
 
             if bqFilterWords:
@@ -130,7 +138,7 @@ class Quiz(commands.Cog):
 
                 if "リセット" in bqFilterWords:
                     # 既定の条件（config.json）へ戻す。既定値そのものを書き換えないよう複製する
-                    cfg.BQ_FILTER_DICT = copy.deepcopy(cfg.DEFAULT_FILTER_DICT)
+                    BQ_FILTER_DICT = copy.deepcopy(cfg.DEFAULT_FILTER_DICT)
                     bqFilterWords.remove("リセット")
 
                 if "種族値" in bqFilterWords:
@@ -143,19 +151,18 @@ class Quiz(commands.Cog):
                         "すばやさ",
                         "合計",
                     ]:
-                        cfg.BQ_FILTER_DICT.pop(key, None)
+                        BQ_FILTER_DICT.pop(key, None)
                     bqFilterWords.remove("種族値")
 
                 for word in bqFilterWords:
                     if word in removeWords:  # 絞り込みをリセット
                         # 設定されていない項目を指定されても落ちないようにする
-                        cfg.BQ_FILTER_DICT.pop(word, None)
+                        BQ_FILTER_DICT.pop(word, None)
 
                 bqFilterWords = [x for x in bqFilterWords if x not in removeWords]
 
                 # インデックスの要素が更新されていない項目はそのまま
-                cfg.BQ_FILTER_DICT.update(ub.make_filter_dict(bqFilterWords))
-                cfg.BQ_FILTERED_DF = ub.filter_dataframe(cfg.BQ_FILTER_DICT).fillna("なし")
+                BQ_FILTER_DICT.update(ub.make_filter_dict(bqFilterWords))
                 response = "種族値クイズの出題条件が変更されました"
                 ub.output_log("出題条件が更新されました")
 
@@ -165,11 +172,11 @@ class Quiz(commands.Cog):
             bqFilteredEmbed = discord.Embed(
                 title="種族値クイズの出題条件",
                 color=0x9013FE,
-                description=f"該当ポケモン数: {cfg.BQ_FILTERED_DF.shape[0]}匹",
+                description=f"該当ポケモン数: {len(get_pokedex().filter(BQ_FILTER_DICT))}匹",
             )
 
-            for i, key in enumerate(cfg.BQ_FILTER_DICT.keys()):
-                values = "\n".join(cfg.BQ_FILTER_DICT[key])
+            for i, key in enumerate(BQ_FILTER_DICT.keys()):
+                values = "\n".join(BQ_FILTER_DICT[key])
                 bqFilteredEmbed.add_field(name=key, value=values, inline=False)
 
             ub.output_log("出題条件を表示します")
@@ -241,21 +248,12 @@ class quiz:
         # 必要な要素をクイズごとに編集
 
         if self.quizName == "bq":
-            qDatas = self.__shotgun(cfg.BQ_FILTER_DICT)
+            qDatas = get_pokedex().random(BQ_FILTER_DICT)
             if qDatas is not None:
-                baseStats = [
-                    qDatas["HP"],
-                    qDatas["こうげき"],
-                    qDatas["ぼうぎょ"],
-                    qDatas["とくこう"],
-                    qDatas["とくぼう"],
-                    qDatas["すばやさ"],
-                ]
-
                 quizEmbed.title = "種族値クイズ"
                 quizEmbed.description = "こたえ: ???"  # 正答後: こたえ: [ポケモン名](複数いる場合),[ポケモン名]
                 quizFile = discord.File(
-                    ub.generate_graph(baseStats), filename="image.png"
+                    ub.generate_graph(list(qDatas.stats)), filename="image.png"
                 )
                 quizEmbed.set_image(
                     url="attachment://image.png"
@@ -271,12 +269,15 @@ class quiz:
                 return
 
         elif self.quizName == "acq":
-            qDatas = self.__shotgun({"進化段階": ["最終進化", "進化しない"]})
+            qDatas = get_pokedex().random({"進化段階": ["最終進化", "進化しない"]})
+            if qDatas is None:
+                await sendChannel.send("現在の出題条件に合うポケモンがいません")
+                return
             quizEmbed.title = "ACクイズ"
             quizEmbed.description = (
-                f"{qDatas['おなまえ']} はこうげきととくこうどちらが高い?"
+                f"{qDatas.name} はこうげきととくこうどちらが高い?"
             )
-            quizEmbed.set_thumbnail(url=self.__imageLink(qDatas["おなまえ"]))
+            quizEmbed.set_thumbnail(url=self.__imageLink(qDatas.name))
 
             quizView = discord.ui.View()
             quizView.add_item(
@@ -302,32 +303,29 @@ class quiz:
             )
 
         elif self.quizName == "etojq":
-            while 1:
-                qDatas = self.__shotgun({"進化段階": ["最終進化", "進化しない"]})
-                if pd.notna(qDatas["英語名"]):
-                    break
-
+            qDatas = self.__random_with({"進化段階": ["最終進化", "進化しない"]}, "eng")
+            if qDatas is None:
+                await sendChannel.send("現在の出題条件に合うポケモンがいません")
+                return
             quizEmbed.title = "英和翻訳クイズ"
-            quizEmbed.description = f"{qDatas['英語名']} -> [?]"
+            quizEmbed.description = f"{qDatas.eng} -> [?]"
 
         elif self.quizName == "jtoeq":
-            while 1:
-                qDatas = self.__shotgun({"進化段階": ["最終進化", "進化しない"]})
-                if pd.notna(qDatas["英語名"]):
-                    break
-
+            qDatas = self.__random_with({"進化段階": ["最終進化", "進化しない"]}, "eng")
+            if qDatas is None:
+                await sendChannel.send("現在の出題条件に合うポケモンがいません")
+                return
             quizEmbed.title = "和英翻訳クイズ"
-            quizEmbed.description = f"{qDatas['おなまえ']} -> [?]"
-            quizEmbed.set_thumbnail(url=self.__imageLink(qDatas["おなまえ"]))
+            quizEmbed.description = f"{qDatas.name} -> [?]"
+            quizEmbed.set_thumbnail(url=self.__imageLink(qDatas.name))
 
         elif self.quizName == "ctojq":
-            while 1:
-                qDatas = self.__shotgun({"進化段階": ["最終進化", "進化しない"]})
-                if pd.notna(qDatas["中国語繁体"]):
-                    break
-
+            qDatas = self.__random_with({"進化段階": ["最終進化", "進化しない"]}, "cht")
+            if qDatas is None:
+                await sendChannel.send("現在の出題条件に合うポケモンがいません")
+                return
             quizEmbed.title = "中日翻訳クイズ"
-            quizEmbed.description = f"{qDatas['中国語繁体']} -> [?]"
+            quizEmbed.description = f"{qDatas.cht} -> [?]"
 
         else:
             ub.output_warning(f"不明なクイズ識別子(post): {self.quizName}")
@@ -419,9 +417,11 @@ class quiz:
         ub.output_log(f"{self.quizName}: 正誤判定を実行")
 
         fixAns = self.ansText
+        repPokeData = None
         if self.quizName in ["bq", "etojq", "ctojq"]:
-            if (repPokeData := ub.fetch_pokemon(self.ansText)) is not None:
-                fixAns = repPokeData.iloc[0]["おなまえ"]
+            if found := ub.fetch_pokemon(self.ansText):
+                repPokeData = found[0]
+                fixAns = repPokeData.name
         elif self.quizName == "jtoeq":
             fixAns = jaconv.z2h(
                 jaconv.kata2alphabet(fixAns), kana=False, ascii=False, digit=True
@@ -458,17 +458,17 @@ class quiz:
             and self.quizName == "jtoeq"
             and len(
                 (
-                    poke := cfg.GLOBAL_BRELOOM_DF[
-                        cfg.GLOBAL_BRELOOM_DF["英語名"].str.lower() == fixAns
+                    pokes := [
+                        p
+                        for p in get_pokedex().records
+                        if p.eng and p.eng.lower() == fixAns
                     ]
                 )
             )
             > 0
         ):
             if isinstance(self.rm, discord.Message):
-                await self.rm.reply(
-                    f"{fixAns} は {poke.iloc[0]['おなまえ']} の英名です"
-                )
+                await self.rm.reply(f"{fixAns} は {pokes[0].name} の英名です")
 
         if judge != "正答" and isinstance(self.rm, discord.Message):
             await self.rm.add_reaction(reaction)
@@ -482,6 +482,9 @@ class quiz:
 
     async def __hint(self):
         ub.output_log(f"{self.quizName}: ヒント表示を実行")
+
+        pokemon = self.ansZero
+        hintIndex = None
 
         if self.quizName in ["bq", "etojq", "ctojq"]:
             if (
@@ -501,41 +504,55 @@ class quiz:
                     field.name for field in self.quizEmbed.fields
                 ]  # 既出のヒントの一覧
                 stillHints = [
-                    x for x in hintIndexs if x not in alreadyHints
-                ]  # 未出のヒントの一覧
-                if len(stillHints) > 0:
-                    while True:
-                        hintIndex = random.choice(stillHints)
-                        if pd.notna(hintIndex):
-                            break
+                    x
+                    for x in hintIndexs
+                    if x not in alreadyHints
+                    and pokemon.hint_value(x) is not None
+                ]  # 未出のヒントの一覧（値が無いものは出さない）
+                if stillHints:
+                    hintIndex = random.choice(stillHints)
                 else:
-                    hintIndex = random.choice(alreadyHints)
+                    shownHints = [
+                        x
+                        for x in alreadyHints
+                        if pokemon.hint_value(x) is not None
+                    ]
+                    if not shownHints:
+                        await self.rm.reply("これ以上 出せるヒントが ないロ")
+                        return
+                    hintIndex = random.choice(shownHints)
 
             elif self.ansText in ["タイプ"]:
-                if not any(field.name == "タイプ1" for field in self.quizEmbed.fields):
+                if pokemon.type_1 and not any(
+                    field.name == "タイプ1" for field in self.quizEmbed.fields
+                ):
                     hintIndex = "タイプ1"
-                elif not any(
+                elif pokemon.type_2 and not any(
                     field.name == "タイプ2" for field in self.quizEmbed.fields
                 ):
                     hintIndex = "タイプ2"
                 else:
                     await self.rm.reply(
-                        f"タイプは{str(self.ansZero['タイプ1'])}/{str(self.ansZero['タイプ2'])}です"
+                        f"タイプは{pokemon.type_1 or 'なし'}/{pokemon.type_2 or 'なし'}です"
                     )
                     return
 
             elif self.ansText in ["特性", "トクセイ"]:
-                if not any(field.name == "特性1" for field in self.quizEmbed.fields):
+                if pokemon.ability_1 and not any(
+                    field.name == "特性1" for field in self.quizEmbed.fields
+                ):
                     hintIndex = "特性1"
-                elif not any(field.name == "特性2" for field in self.quizEmbed.fields):
+                elif pokemon.ability_2 and not any(
+                    field.name == "特性2" for field in self.quizEmbed.fields
+                ):
                     hintIndex = "特性2"
-                elif not any(
+                elif pokemon.ability_h and not any(
                     field.name == "隠れ特性" for field in self.quizEmbed.fields
                 ):
                     hintIndex = "隠れ特性"
                 else:
                     await self.rm.reply(
-                        f"とくせいは{str(self.ansZero['特性1'])}/{str(self.ansZero['特性2'])}/{str(self.ansZero['隠れ特性'])}です"
+                        f"とくせいは{pokemon.ability_1 or 'なし'}/{pokemon.ability_2 or 'なし'}/{pokemon.ability_h or 'なし'}です"
                     )
                     return
 
@@ -547,23 +564,28 @@ class quiz:
                 hintIndex = "初登場作品"
             elif self.ansText in ["語源", "ゴゲン"]:
                 hintIndex = "英語名由来"
-            hintValue = self.ansZero[hintIndex]
 
         elif self.quizName == "jtoeq":
             if self.ansText in ["文字数", "モジスウ"]:
                 hintIndex = "文字数"
-                hintValue = len(self.ansZero["英語名"])
             elif self.ansText in ["頭文字", "カシラモジ", "イニシャル"]:
                 hintIndex = "イニシャル"
-                hintValue = self.ansZero["英語名"][0:1]
 
         else:
             ub.output_warning(f"不明なクイズ識別子(hint): {self.quizName}")
             return
 
+        if hintIndex is None:
+            return
+
+        hintValue = pokemon.hint_value(hintIndex)
+        if hintValue is None:
+            await self.rm.reply(f"{hintIndex}は まだ 登録されて いないロ")
+            return
+
         # 初出のヒントならEmbedにフィールドを追加
         if not any(field.name == hintIndex for field in self.quizEmbed.fields):
-            self.quizEmbed.add_field(name=hintIndex, value=hintValue)
+            self.quizEmbed.add_field(name=hintIndex, value=str(hintValue))
             try:
                 await self.qm.edit(embed=self.quizEmbed, attachments=[])
             except discord.errors.Forbidden:
@@ -572,11 +594,12 @@ class quiz:
         await self.rm.reply(f"{hintIndex}は{hintValue}です")
 
     async def __disclose(self, tf, answered=None):
-        if cfg.QUIZ_PROCESSING_FLAG == 1:
+        global QUIZ_PROCESSING_FLAG
+        if QUIZ_PROCESSING_FLAG == 1:
             ub.output_log(f"{self.quizName}: 応答処理実行中につき処理を中断")
             return 1
 
-        cfg.QUIZ_PROCESSING_FLAG = 1  # 回答開示処理を始める
+        QUIZ_PROCESSING_FLAG = 1  # 回答開示処理を始める
         ub.output_log(f"{self.quizName}: 回答開示を実行")
 
         if tf:  # 正解者がいる場合
@@ -620,7 +643,8 @@ class quiz:
         elif self.quizName in ["etojq", "jtoeq", "ctojq"]:
             self.quizEmbed.description = f"{self.examText} -> [{self.ansList[0]}]"
             if self.quizName == "etojq":
-                self.quizEmbed.description += f'\n{str(self.ansZero["英語名由来"])}'
+                if self.ansZero.etymology:
+                    self.quizEmbed.description += f"\n{self.ansZero.etymology}"
             elif self.quizName == "ctojq":
                 self.quizEmbed.description += (
                     f"\n拼音: {ub.pinyin_to_text(self.examText)}"
@@ -638,7 +662,7 @@ class quiz:
             ub.output_log(f"クイズのフッター:{updated_message.embeds[0].footer.text}")
             if updated_message.embeds and "(done)" in updated_message.embeds[0].footer.text:
                 ub.output_log("クイズの処理中にクイズが終了しています")
-                cfg.QUIZ_PROCESSING_FLAG = 0  # 回答開示処理を終わる
+                QUIZ_PROCESSING_FLAG = 0  # 回答開示処理を終わる
                 return 1  # 処理中断（失敗）を示す値
         except Exception as e:
             ub.output_log(f"メッセージ取得中にエラー: {e}")
@@ -662,13 +686,13 @@ class quiz:
             except discord.errors.Forbidden:
                 pass
 
-        cfg.QUIZ_PROCESSING_FLAG = 0  # 回答開示処理を終わる
+        QUIZ_PROCESSING_FLAG = 0  # 回答開示処理を終わる
         await self.__continue()  # 連続出題を試みる
 
         return 0
 
     async def __continue(self):
-        if cfg.BAKUSOKU_MODE:
+        if BAKUSOKU_MODE:
             ub.output_log(f"{self.quizName}: 連続出題を実行")
             loadingEmbed = discord.Embed(
                 title="**BAKUSOKU MODE ON**",
@@ -683,62 +707,50 @@ class quiz:
         ub.output_log(f"{self.quizName}: 正答リスト生成を実行")
         answers = []
         aData = None
+        pokedex = get_pokedex()
 
         if self.quizName == "bq":
-            H, A, B, C, D, S = map(int, self.examText.split("-"))
-            aDatas = cfg.GLOBAL_BRELOOM_DF.loc[
-                (cfg.GLOBAL_BRELOOM_DF["HP"] == H)
-                & (cfg.GLOBAL_BRELOOM_DF["こうげき"] == A)
-                & (cfg.GLOBAL_BRELOOM_DF["ぼうぎょ"] == B)
-                & (cfg.GLOBAL_BRELOOM_DF["とくこう"] == C)
-                & (cfg.GLOBAL_BRELOOM_DF["とくぼう"] == D)
-                & (cfg.GLOBAL_BRELOOM_DF["すばやさ"] == S)
-            ]
-            aData = aDatas.iloc[0]
-            for index, row in aDatas.iterrows():
-                answer = row["おなまえ"]
-                answers.append(answer)
+            stats = tuple(map(int, self.examText.split("-")))
+            aDatas = [p for p in pokedex.records if p.stats == stats]
+            aData = aDatas[0]
+            answers = [p.name for p in aDatas]
 
         elif self.quizName == "acq":
-            aDatas = ub.fetch_pokemon(self.examText)
-            aData = aDatas.iloc[0]
-            if (aData["こうげき"] == aData["とくこう"]).all():
+            aData = ub.fetch_pokemon(self.examText)[0]
+            if aData.atk == aData.spa:
                 answers.append("同値")
-            elif (aData["こうげき"] > aData["とくこう"]).all():
+            elif aData.atk > aData.spa:
                 answers.append("こうげき")
             else:
                 answers.append("とくこう")
 
         elif self.quizName == "etojq":
-            aDatas = cfg.GLOBAL_BRELOOM_DF[cfg.GLOBAL_BRELOOM_DF["英語名"] == self.examText]
-            aData = aDatas.iloc[0]
-            answers.append(str(aData["おなまえ"]))
+            aData = [p for p in pokedex.records if p.eng == self.examText][0]
+            answers.append(aData.name)
 
         elif self.quizName == "jtoeq":
-            aDatas = ub.fetch_pokemon(self.examText)
-            aData = aDatas.iloc[0]
-            answers.append(str(aData["英語名"]))
+            aData = ub.fetch_pokemon(self.examText)[0]
+            answers.append(aData.eng)
 
         elif self.quizName == "ctojq":
-            aDatas = cfg.GLOBAL_BRELOOM_DF[cfg.GLOBAL_BRELOOM_DF["中国語繁体"] == self.examText]
-            aData = aDatas.iloc[0]
-            answers.append(str(aData["おなまえ"]))
+            aData = [p for p in pokedex.records if p.cht == self.examText][0]
+            answers.append(aData.name)
 
         else:
             ub.output_warning(f"不明なクイズ識別子(answers): {self.quizName}")
-            return
+            return answers, aData
 
         return answers, aData  # 正答のリストと0番目の正答をタプルで返す
 
-    def __shotgun(self, filter_dict):
-        ub.output_log(f"{self.quizName}: ランダム選択を実行")
-        filteredPokeData = ub.filter_dataframe(filter_dict)  # .fillna('なし')
-        if filteredPokeData.empty:
+    def __random_with(self, filter_dict, field):
+        """条件に合うポケモンから、指定の項目を持つ1匹をランダムに選ぶ。"""
+        candidates = [
+            p for p in get_pokedex().filter(filter_dict) if getattr(p, field)
+        ]
+        if not candidates:
             ub.output_error(f"{self.quizName}: 出題条件に合うポケモンがいません")
             return None
-        return filteredPokeData.iloc[
-            random.randint(0, filteredPokeData.shape[0] - 1)
-        ]
+        return random.choice(candidates)
 
     def __imageLink(self, searchWord=None):
         ub.output_log(f"{self.quizName}: 画像リンク生成を実行")
@@ -746,8 +758,8 @@ class quiz:
         if searchWord is not None:
             if self.quizName in ["bq", "acq", "etojq", "jtoeq", "ctojq"]:
                 displayImage = ub.fetch_pokemon(searchWord)
-                if displayImage is not None:  # 回答ポケモンが発見できた場合
-                    link = f"{cfg.EX_SOURCE_LINK}art/{displayImage.iloc[0]['ぜんこくずかんナンバー']}.png"
+                if displayImage:  # 回答ポケモンが発見できた場合
+                    link = f"{cfg.EX_SOURCE_LINK}art/{displayImage[0].image_number}.png"
             else:
                 ub.output_warning(f"不明なクイズ識別子(imageLink): {self.quizName}")
         return link
