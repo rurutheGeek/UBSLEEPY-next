@@ -151,3 +151,9 @@ def test_load_uses_pkdb_when_available(monkeypatch):
 
     dex = pk.load_pokedex(CSV_PATH)
     assert [r.display_number for r in dex.records] == ["26", "26.1", "26.2"]
+
+
+def test_pkdb_query_only_takes_language_names_from_the_same_form():
+    # pokemon_name_lang は基本の姿（'00'）だけ。フォームに基底の英語名を継承させない。
+    assert "l.form_id = q.form_id" in pk.POKEDEX_SQL
+    assert "l.form_id = '00'" not in pk.POKEDEX_SQL

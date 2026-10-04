@@ -43,7 +43,7 @@ FROM mv_quiz_status q
 JOIN mv_latest_pokemon_status s
   ON s.ndex_number = q.ndex_number AND s.form_id = q.form_id
 LEFT JOIN pokemon_name_lang l
-  ON l.ndex_number = q.ndex_number AND l.form_id = '00'
+  ON l.ndex_number = q.ndex_number AND l.form_id = q.form_id
 LEFT JOIN (
     SELECT ndex_number, form_id, min(title_group_id) AS title_group_id
     FROM pokemon_status
