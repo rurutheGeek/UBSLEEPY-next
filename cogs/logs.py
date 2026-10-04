@@ -27,16 +27,21 @@ class LogRelay(commands.Cog):
         lines = self.handler.drain()
         if not lines:
             return
-        channel = self.bot.get_channel(cfg.LOG_CHANNEL_ID)
-        if channel is None:
-            # チャンネルがまだ見えないときは次回に回す
-            self.handler.requeue(lines)
-            return
+        try:
+            channel = self.bot.get_channel(cfg.LOG_CHANNEL_ID)
+            if channel is None:
+                # チャンネルがまだ見えないときは次回に回す
+                self.handler.requeue(lines)
+                return
 
-        text = "\n".join(lines)
-        # 文字数制限のため2000文字ずつ送る
-        for i in range(0, len(text), 2000):
-            await channel.send(text[i : i + 2000])
+            text = "\n".join(lines)
+            # 文字数制限のため2000文字ずつ送る
+            for i in range(0, len(text), 2000):
+                await channel.send(text[i : i + 2000])
+        except Exception as e:
+            # 送れなかった行は失わず、一度の失敗で tasks.loop ごと止まらないようにする
+            self.handler.requeue(lines)
+            logger.error(f"ログの中継に失敗しました\n{e}")
 
 
 async def setup(bot):
