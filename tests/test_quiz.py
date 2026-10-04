@@ -2,16 +2,47 @@
 # tests/test_quiz.py
 # ヒント表示、返信・ポケモン名投稿の扱い、出題条件まわりの回帰テスト。
 import asyncio
-import copy
 import logging
 
 import discord
-import pandas as pd
 
 import bot_module.config as cfg
 import cogs.quiz as quiz_module
+from bot_module.pokedex import Pokemon
 
 QUIZ_CHANNEL_ID = cfg.QUIZ_CHANNEL_ID
+
+
+def _pokemon(**overrides):
+    values = dict(
+        ndex_number="0006",
+        form_id="00",
+        species="6",
+        name="リザードン",
+        species_name="リザードン",
+        form_name=None,
+        aliases=(),
+        type_1="ほのお",
+        type_2="ひこう",
+        ability_1="もうか",
+        ability_2=None,
+        ability_h="サンパワー",
+        hp=78,
+        atk=84,
+        dfn=78,
+        spa=109,
+        spd=85,
+        spe=100,
+        region="カントー",
+        evolution_stage="最終進化",
+        first_title="RGB",
+        generation=1,
+        eng="Charizard",
+        cht="噴火龍",
+        display_number="6",
+    )
+    values.update(overrides)
+    return Pokemon(**values)
 
 
 class FakeUser:
@@ -88,11 +119,9 @@ def test_hint_shows_second_ability_when_all_abilities_are_shown():
     for name in ["タイプ1", "タイプ2", "特性1", "特性2", "隠れ特性"]:
         q.quizEmbed.add_field(name=name, value="x")
     q.ansText = "特性"
-    q.ansZero = {
-        "特性1": "しんりょく",
-        "特性2": "ようりょくそ",
-        "隠れ特性": "くさのけがわ",
-    }
+    q.ansZero = _pokemon(
+        ability_1="しんりょく", ability_2="ようりょくそ", ability_h="くさのけがわ"
+    )
 
     asyncio.run(q._quiz__hint())
 
@@ -201,18 +230,16 @@ def test_pokemon_name_finds_unanswered_quiz(monkeypatch, caplog):
     )
 
 
-def test_shotgun_returns_none_when_no_pokemon_matches(monkeypatch):
-    monkeypatch.setattr(
-        quiz_module.ub, "filter_dataframe", lambda filter_dict: pd.DataFrame()
-    )
+class FakePokedex:
+    def __init__(self, random_result=None):
+        self.random_result = random_result
 
-    assert _quiz()._quiz__shotgun({"進化段階": ["存在しない"]}) is None
+    def random(self, filter_dict):
+        return self.random_result
 
 
 def test_bq_post_reports_no_matching_pokemon(monkeypatch):
-    monkeypatch.setattr(
-        quiz_module.ub, "filter_dataframe", lambda filter_dict: pd.DataFrame()
-    )
+    monkeypatch.setattr(quiz_module, "get_pokedex", lambda: FakePokedex())
     channel = FakeChannel()
 
     asyncio.run(_quiz().post(channel))
@@ -227,15 +254,9 @@ def test_bqdata_removing_unset_key_does_not_raise(monkeypatch):
     message = FakeMessage(author=FakeUser(), content="/bqdata タイプ", channel=channel)
 
     monkeypatch.setattr(
-        cfg, "BQ_FILTER_DICT", {"進化段階": ["最終進化", "進化しない"]}
+        quiz_module, "BQ_FILTER_DICT", {"進化段階": ["最終進化", "進化しない"]}
     )
-    monkeypatch.setattr(cfg, "BQ_FILTERED_DF", pd.DataFrame({"おなまえ": ["ピカチュウ"]}))
     monkeypatch.setattr(quiz_module.ub, "make_filter_dict", lambda words: {})
-    monkeypatch.setattr(
-        quiz_module.ub,
-        "filter_dataframe",
-        lambda filter_dict: pd.DataFrame({"おなまえ": ["ピカチュウ"]}),
-    )
 
     asyncio.run(cog.on_message(message))
 
@@ -251,29 +272,15 @@ def test_bqdata_reset_restores_defaults(monkeypatch):
 
     default = {"出身地": ["カントー"]}
     monkeypatch.setattr(cfg, "DEFAULT_FILTER_DICT", default)
-    monkeypatch.setattr(cfg, "BQ_FILTER_DICT", {"進化段階": ["最終進化"]})
-    monkeypatch.setattr(cfg, "BQ_FILTERED_DF", pd.DataFrame({"おなまえ": ["ピカチュウ"]}))
+    monkeypatch.setattr(quiz_module, "BQ_FILTER_DICT", {"進化段階": ["最終進化"]})
     monkeypatch.setattr(quiz_module.ub, "make_filter_dict", lambda words: {})
-    monkeypatch.setattr(
-        quiz_module.ub,
-        "filter_dataframe",
-        lambda filter_dict: pd.DataFrame({"おなまえ": ["ピカチュウ"]}),
-    )
 
     asyncio.run(cog.on_message(message))
 
-    assert cfg.BQ_FILTER_DICT == default
-    assert cfg.BQ_FILTER_DICT is not default
+    assert quiz_module.BQ_FILTER_DICT == default
+    assert quiz_module.BQ_FILTER_DICT is not default
 
 
-def test_bq_filter_dict_is_independent_from_defaults():
-    cfg.load_config()
-    try:
-        assert cfg.BQ_FILTER_DICT == cfg.DEFAULT_FILTER_DICT
-        assert cfg.BQ_FILTER_DICT is not cfg.DEFAULT_FILTER_DICT
-
-        before = copy.deepcopy(cfg.DEFAULT_FILTER_DICT)
-        cfg.BQ_FILTER_DICT.pop(next(iter(cfg.BQ_FILTER_DICT)))
-        assert cfg.DEFAULT_FILTER_DICT == before
-    finally:
-        cfg.load_config()
+def test_quiz_filter_dict_starts_as_a_copy():
+    assert quiz_module.BQ_FILTER_DICT == cfg.DEFAULT_FILTER_DICT
+    assert quiz_module.BQ_FILTER_DICT is not cfg.DEFAULT_FILTER_DICT
