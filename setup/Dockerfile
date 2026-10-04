@@ -1,14 +1,15 @@
+# UBSLEEPY（-next）の実行イメージ。
+#
+# このリポジトリの中身をそのまま入れる。セーブデータ（save/・log/・config.json・
+# resource/pokemon_senryu.csv・resource/image）はイメージに入れず、配備側で
+# state から重ねる（stacks/ubsleepy-next の compose を参照）。
 FROM python:3.13
 
 WORKDIR /app
 
-# リポジトリをクローン
-RUN apt-get update && apt-get install -y git
-RUN git clone https://github.com/rurutheGeek/UBSLEEPY.git ./UBSLEEPY/
+COPY setup/requirements.txt setup/requirements.txt
+RUN pip install --no-cache-dir -r setup/requirements.txt
 
-# 必要なPythonパッケージをインストール
-RUN pip install --no-cache-dir -r UBSLEEPY/requirements.txt
+COPY . .
 
-# メインプログラムを実行するコマンドを設定
-# CMD ["python", "UBSLEEPY/main.py"]
-CMD ["/bin/bash"]
+CMD ["python", "main.py"]
