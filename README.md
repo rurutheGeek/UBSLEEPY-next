@@ -130,6 +130,8 @@ pip install --no-cache-dir -r ./setup/requirements.txt
 DISCORD_TOKEN=ここにDiscordBotのトークン
 # 任意: 設定すると図鑑をpkdb（PostgreSQL）から読む。未設定ならCSVを使う
 PKDB_PASSWORD=図鑑DBの読み取り用パスワード
+# 任意: 設定するとセーブデータをubsleepy DBへ書く。未設定ならsave/report.csvを使う
+UBSLEEPY_DB_PASSWORD=セーブDBの書き込み用パスワード
 ```
 - resource ディレクトリに以下のファイルを配置してください：
   - `pokemon_database.csv`: `PKDB_PASSWORD` が未設定のときの図鑑データ（設定時はpkdbが優先）
