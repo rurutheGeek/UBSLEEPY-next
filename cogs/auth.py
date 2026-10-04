@@ -69,7 +69,7 @@ class Auth(commands.Cog):
                 )
                 ub.output_log(f"サーバーにメンバーが参加しました: {member.name}")
             else:
-                ub.output_log(f"チャンネルが見つかりません: {cfg.HELLO_CHANNEL_ID}")
+                ub.output_warning(f"チャンネルが見つかりません: {cfg.HELLO_CHANNEL_ID}")
 
     @commands.Cog.listener()
     async def on_interaction(self, interaction: discord.Interaction):
@@ -190,11 +190,11 @@ class Auth(commands.Cog):
                         f"サークルメンバー照合ができました\n {studentId}: {member.name}"
                     )
                 else:
-                    ub.output_log(
+                    ub.output_warning(
                         f"サークルメンバー照合ができませんでした\n {studentId}: {member.name}"
                     )
             else:
-                ub.output_log(f"認証用   ファイルが存在しません: {listPath}")
+                ub.output_warning(f"認証用   ファイルが存在しません: {listPath}")
 
             await interaction.response.send_message(
                 content, embed=thanksEmbed, ephemeral=True

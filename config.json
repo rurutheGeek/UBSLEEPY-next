@@ -53,7 +53,6 @@
         "BSS_GRAPH_PATH": "save/graph.png",
         "MEMORY_PATH": "save/restmemorychannel.csv",
         "CALLDATA_PATH": "save/call_cache.csv",
-        "SYSTEMLOG_PATH": "save/output_cache.txt",
         "FEEDBACK_PATH": "log/feedbacks_log.csv",
         "MEMBERLIST_PATH": "log/auth_log.csv",
         "CALLLOG_PATH": "log/call_log.csv"

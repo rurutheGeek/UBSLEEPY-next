@@ -358,10 +358,10 @@ class CallPost:  # await CallPost(bot, discord.channel).start(member,time) /.sto
                     self.call_df.loc[self.channel.id, "メッセージID"]
                 )
             except discord.NotFound:
-                ub.output_log("ERROR: 指定のメッセージが見つかりませんでした")
+                ub.output_error("指定のメッセージが見つかりませんでした")
                 return False
         else:
-            ub.output_log("ERROR: 指定チャンネルの通話記録がありません")
+            ub.output_error("指定チャンネルの通話記録がありません")
             return False
         return True
 
