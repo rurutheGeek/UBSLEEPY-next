@@ -39,9 +39,9 @@
         }
     },
     "EMOJI_ID_DICT": {
-        "BALL_ICON": "<:bullet:1077833761313525820> ",
-        "BANGBANG_ICON": "<:unown_bangbang:1095570764415123508>",
-        "EXCLAMATION_ICON": "<:unown_exclamation:1095570767984480489>"
+        "BALL_ICON": "🔹 ",
+        "BANGBANG_ICON": "‼️",
+        "EXCLAMATION_ICON": "❗"
     },
     "PATH_DICT": {
         "POKEDEX_PATH": "resource/pokemon_database.csv",
