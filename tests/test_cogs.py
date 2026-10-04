@@ -12,8 +12,6 @@ COGS = [
     "cogs.pokedex",
     "cogs.quiz",
     "cogs.daily",
-    "cogs.calls",
-    "cogs.auth",
     "cogs.logs",
     "cogs.admin",
 ]
@@ -26,8 +24,6 @@ EXPECTED_COMMANDS = {
     "quizrate",
     "bmode",
     "pocketmoney",
-    "calltitle",
-    "invite",
     "devtest",
     "devlogin",
     "devimport",
