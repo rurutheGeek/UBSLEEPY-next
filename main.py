@@ -27,6 +27,7 @@ COGS = [
     "cogs.quiz",
     "cogs.search",
     "cogs.daily",
+    "cogs.settings",
     "cogs.logs",
     "cogs.admin",
 ]

@@ -13,6 +13,7 @@ COGS = [
     "cogs.quiz",
     "cogs.search",
     "cogs.daily",
+    "cogs.settings",
     "cogs.logs",
     "cogs.admin",
 ]
@@ -26,6 +27,7 @@ EXPECTED_COMMANDS = {
     "bmode",
     "search",
     "pocketmoney",
+    "channel",
     "devtest",
     "devlogin",
     "devimport",
