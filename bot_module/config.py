@@ -8,6 +8,7 @@ bot_module.settings.get_settings() を使ってよい。旧コードは今まで
 
 ここに残っているのは移行の途中経過で、Cog分割が済んだら整理する。
 """
+import copy
 import sys
 
 import pandas as pd
@@ -69,7 +70,7 @@ BASE_STATS_DICT = SETTINGS.base_stats_dict
 WEAK_DICT = SETTINGS.weak_dict
 TYPE_COLOR_DICT = SETTINGS.type_color_dict
 PRIZE_DICT = SETTINGS.prize_dict
-DEFAULT_FILTER_DICT = SETTINGS.default_filter_dict
+DEFAULT_FILTER_DICT = copy.deepcopy(SETTINGS.default_filter_dict)
 
 
 def load_config():
@@ -82,7 +83,7 @@ def load_config():
         "ぜんこくずかんナンバー"
     ].apply(lambda x: str(int(x)) if x.is_integer() else str(x))
     BQ_FILTERED_DF = GLOBAL_BRELOOM_DF.copy()
-    BQ_FILTER_DICT = DEFAULT_FILTER_DICT
+    BQ_FILTER_DICT = copy.deepcopy(DEFAULT_FILTER_DICT)
 
 
 # config.jsonを読み込む

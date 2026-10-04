@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 # cogs/quiz.py
 """ポケモンクイズ（/q /quizrate /bmode）と回答の受付。"""
+import copy
 import os
 import random
 import re
@@ -128,7 +129,8 @@ class Quiz(commands.Cog):
                 ]
 
                 if "リセット" in bqFilterWords:
-                    cfg.BQ_FILTER_DICT = {"進化段階": ["最終進化", "進化しない"]}
+                    # 既定の条件（config.json）へ戻す。既定値そのものを書き換えないよう複製する
+                    cfg.BQ_FILTER_DICT = copy.deepcopy(cfg.DEFAULT_FILTER_DICT)
                     bqFilterWords.remove("リセット")
 
                 if "種族値" in bqFilterWords:
@@ -144,9 +146,10 @@ class Quiz(commands.Cog):
                         cfg.BQ_FILTER_DICT.pop(key, None)
                     bqFilterWords.remove("種族値")
 
-                for i in range(len(bqFilterWords)):
-                    if bqFilterWords[i] in removeWords:  # 絞り込みをリセット
-                        del cfg.BQ_FILTER_DICT[bqFilterWords[i]]
+                for word in bqFilterWords:
+                    if word in removeWords:  # 絞り込みをリセット
+                        # 設定されていない項目を指定されても落ちないようにする
+                        cfg.BQ_FILTER_DICT.pop(word, None)
 
                 bqFilterWords = [x for x in bqFilterWords if x not in removeWords]
 
@@ -181,10 +184,12 @@ class Quiz(commands.Cog):
 
             # bot自身へのリプライに反応
             if message.reference.resolved.author == self.bot.user:
-                embedFooterText = message.reference.resolved.embeds[0].footer.text
+                embeds = message.reference.resolved.embeds
+                embedFooterText = embeds[0].footer.text if embeds else None
                 # リプライ先にembedが含まれるかつ未回答のクイズの投稿か
                 if (
-                    "No.26 ポケモンクイズ" in embedFooterText
+                    embedFooterText
+                    and "No.26 ポケモンクイズ" in embedFooterText
                     and not "(done)" in embedFooterText
                 ):
                     await quiz(self.bot, embedFooterText.split()[3]).try_response(message)
@@ -197,9 +202,10 @@ class Quiz(commands.Cog):
             #メッセージの内容がポケモン名であるか判定
             if ub.fetch_pokemon(message.content) is not None:
                 #一番新しいクイズの投稿を探し,未回答の場合は
+                foundQuiz = False
                 async for quizMessage in message.channel.history(limit=10):
                     if quizMessage.embeds:
-                        embedFooterText = quizMessage.embeds[0].footer.text
+                        embedFooterText = quizMessage.embeds[0].footer.text or ""
                         if (
                             "No.26 ポケモンクイズ - bq" in embedFooterText
                             and not "(done)" in embedFooterText
@@ -213,8 +219,9 @@ class Quiz(commands.Cog):
                             )
                             message.reference.resolved = quizMessage
                             await quiz(self.bot, embedFooterText.split()[3]).try_response(message)
+                            foundQuiz = True
                             break
-                if not quizMessage.embeds:
+                if not foundQuiz:
                     ub.output_warning("ポケモン名が投稿されましたがクイズ投稿が見つかりませんでした")
 
 
@@ -259,7 +266,9 @@ class quiz:
                 quizContent = ub.bss_to_text(qDatas)
 
             else:
+                # 条件に合うポケモンがいない場合は、空のクイズを投稿せずに終わる
                 await sendChannel.send("現在の出題条件に合うポケモンがいません")
+                return
 
         elif self.quizName == "acq":
             qDatas = self.__shotgun({"進化段階": ["最終進化", "進化しない"]})
@@ -526,7 +535,7 @@ class quiz:
                     hintIndex = "隠れ特性"
                 else:
                     await self.rm.reply(
-                        f"とくせいは{str(self.ansZero['特性1'])}/{str(self.ansZero['特性1'])}/{str(self.ansZero['隠れ特性'])}です"
+                        f"とくせいは{str(self.ansZero['特性1'])}/{str(self.ansZero['特性2'])}/{str(self.ansZero['隠れ特性'])}です"
                     )
                     return
 
@@ -724,14 +733,12 @@ class quiz:
     def __shotgun(self, filter_dict):
         ub.output_log(f"{self.quizName}: ランダム選択を実行")
         filteredPokeData = ub.filter_dataframe(filter_dict)  # .fillna('なし')
-        selectedPokeData = filteredPokeData.iloc[
+        if filteredPokeData.empty:
+            ub.output_error(f"{self.quizName}: 出題条件に合うポケモンがいません")
+            return None
+        return filteredPokeData.iloc[
             random.randint(0, filteredPokeData.shape[0] - 1)
         ]
-        if selectedPokeData is not None:
-            return selectedPokeData
-        else:
-            ub.output_error(f"{self.quizName}: 正常にランダム選択できませんでした")
-            return None
 
     def __imageLink(self, searchWord=None):
         ub.output_log(f"{self.quizName}: 画像リンク生成を実行")
