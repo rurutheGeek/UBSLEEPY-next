@@ -2,7 +2,7 @@
 # cogs/daily.py
 """日替わり投稿・ログ投稿・おこづかい・IDくじ。"""
 import random
-from datetime import datetime, timedelta
+from datetime import datetime, time, timedelta
 from zoneinfo import ZoneInfo
 
 import discord
@@ -14,6 +14,31 @@ import bot_module.embed as ub_embed
 import bot_module.func as ub
 
 GUILDS = [discord.Object(id=guild_id) for guild_id in cfg.GUILD_IDS]
+
+# 最後に日替わり投稿を出した日付を残すファイル（save/ はバックアップ対象）
+LAST_DAILY_PATH = "save/last_daily.txt"
+
+
+def read_last_daily_date() -> str | None:
+    """最後に日替わり投稿を出した日付（%Y/%m/%d）を返す。無ければNone。"""
+    try:
+        with open(LAST_DAILY_PATH, encoding="utf-8") as file:
+            value = file.read().strip()
+    except FileNotFoundError:
+        return None
+    return value or None
+
+
+def save_last_daily_date(day: datetime) -> None:
+    with open(LAST_DAILY_PATH, "w", encoding="utf-8") as file:
+        file.write(day.strftime("%Y/%m/%d"))
+
+
+def should_post_daily(last_date: str | None, now: datetime) -> bool:
+    """起動時に日替わり投稿を出すべきか。5時前は出さない。"""
+    if now.hour < 5:
+        return False
+    return last_date != now.strftime("%Y/%m/%d")
 
 
 async def post_daily(bot, now: datetime, channelid: int):
@@ -77,12 +102,11 @@ class Daily(commands.Cog):
         except FileNotFoundError:
             pass
 
-    @tasks.loop(seconds=60)
-    async def daily_bonus(self, now: datetime = None, channelid: int = cfg.DAIRY_CHANNEL_ID):
-        if now is None:
-            now = datetime.now(ZoneInfo("Asia/Tokyo"))
-        if now.hour == 5 and now.minute == 0:
-            await post_daily(self.bot, now, channelid)
+    @tasks.loop(time=time(hour=5, minute=0, tzinfo=ZoneInfo("Asia/Tokyo")))
+    async def daily_bonus(self):
+        now = datetime.now(ZoneInfo("Asia/Tokyo"))
+        await post_daily(self.bot, now, cfg.DAIRY_CHANNEL_ID)
+        save_last_daily_date(now)
 
     @commands.Cog.listener()
     async def on_ready(self):
@@ -96,25 +120,32 @@ class Daily(commands.Cog):
         dairyChannel = self.bot.get_channel(cfg.DAIRY_CHANNEL_ID)
         if dairyChannel is not None:
             now = datetime.now(ZoneInfo("Asia/Tokyo"))
-            if now.hour >= 5:
-                timeSignal = False
-                async for message in dairyChannel.history(limit=3):
-                    if (
-                        message.author == self.bot.user
-                        and now.strftime("%Y/%m/%d") in message.content
-                    ):
-                        timeSignal = True
-                        break
-
-                if not timeSignal:
+            lastDate = read_last_daily_date()
+            if should_post_daily(lastDate, now):
+                if lastDate is None and await self.__posted_today(dairyChannel, now):
+                    # 状態ファイルを入れる前の投稿を確認できた場合は二重投稿しない
+                    save_last_daily_date(now)
+                    ub.output_log("本日の時報は投稿済みでした")
+                else:
                     ub.output_log("本日の時報が未投稿のようです.時報の投稿を試みます")
                     await post_daily(
                         self.bot,
                         now.replace(hour=5, minute=0, second=0, microsecond=0),
                         cfg.DAIRY_CHANNEL_ID,
                     )
+                    save_last_daily_date(now)
 
             ub.output_log("botが起動しました")
+
+    async def __posted_today(self, dairyChannel, now: datetime) -> bool:
+        """日付入りの投稿が今日ぶんチャンネルにあるか確認する（状態ファイル導入前の互換）。"""
+        async for message in dairyChannel.history(limit=10):
+            if (
+                message.author == self.bot.user
+                and now.strftime("%Y/%m/%d") in message.content
+            ):
+                return True
+        return False
 
     # おこづかいランキングを表示するコマンド
     @discord.app_commands.command(name="pocketmoney", description="おこづかいの残高照会をします")
