@@ -59,7 +59,6 @@ REPORT_PATH = SETTINGS.paths.report
 BSS_GRAPH_PATH = SETTINGS.paths.bss_graph
 MEMORY_PATH = SETTINGS.paths.memory
 CALLDATA_PATH = SETTINGS.paths.calldata
-SYSTEMLOG_PATH = SETTINGS.paths.systemlog
 FEEDBACK_PATH = SETTINGS.paths.feedback
 MEMBERLIST_PATH = SETTINGS.paths.memberlist
 CALLLOG_PATH = SETTINGS.paths.calllog

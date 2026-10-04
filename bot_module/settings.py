@@ -64,7 +64,6 @@ class PathSettings:
     bss_graph: str
     memory: str
     calldata: str
-    systemlog: str
     feedback: str
     memberlist: str
     calllog: str
@@ -157,7 +156,6 @@ def load_settings(
             bss_graph=_require(paths, "BSS_GRAPH_PATH", str(path)),
             memory=_require(paths, "MEMORY_PATH", str(path)),
             calldata=_require(paths, "CALLDATA_PATH", str(path)),
-            systemlog=_require(paths, "SYSTEMLOG_PATH", str(path)),
             feedback=_require(paths, "FEEDBACK_PATH", str(path)),
             memberlist=_require(paths, "MEMBERLIST_PATH", str(path)),
             calllog=_require(paths, "CALLLOG_PATH", str(path)),

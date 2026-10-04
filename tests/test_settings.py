@@ -31,7 +31,7 @@ def test_debug_uses_developer_guild():
 def test_paths_and_link():
     settings = load_settings(config_path=DEFAULT, debug=False)
     assert settings.paths.pokedex == "resource/pokemon_database.csv"
-    assert settings.paths.systemlog == "save/output_cache.txt"
+    assert settings.paths.calldata == "save/call_cache.csv"
     assert settings.ex_source_link.startswith("https://")
 
 

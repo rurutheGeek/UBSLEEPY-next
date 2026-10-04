@@ -83,25 +83,6 @@ class Daily(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
 
-    @tasks.loop(seconds=30)
-    async def post_logs(self):
-        try:
-            with open(cfg.SYSTEMLOG_PATH, "r+", encoding="utf-8") as file:
-                file.seek(0)
-                logStrs = file.read()
-                if logStrs:
-                    channel = self.bot.get_channel(cfg.LOG_CHANNEL_ID)
-                    # 文字数制限のため,2000以上なら分割して送信
-                    if len(logStrs) > 2000:
-                        for i in range(0, len(logStrs), 2000):
-                            await channel.send(logStrs[i : i + 2000])
-                    else:
-                        await channel.send(logStrs)
-                    file.truncate(0)
-
-        except FileNotFoundError:
-            pass
-
     @tasks.loop(time=time(hour=5, minute=0, tzinfo=ZoneInfo("Asia/Tokyo")))
     async def daily_bonus(self):
         now = datetime.now(ZoneInfo("Asia/Tokyo"))
@@ -111,8 +92,6 @@ class Daily(commands.Cog):
     @commands.Cog.listener()
     async def on_ready(self):
         # 定期処理の開始
-        if not self.post_logs.is_running():
-            self.post_logs.start()
         if not self.daily_bonus.is_running():
             self.daily_bonus.start()
 
@@ -127,7 +106,7 @@ class Daily(commands.Cog):
                     save_last_daily_date(now)
                     ub.output_log("本日の時報は投稿済みでした")
                 else:
-                    ub.output_log("本日の時報が未投稿のようです.時報の投稿を試みます")
+                    ub.output_warning("本日の時報が未投稿のようです.時報の投稿を試みます")
                     await post_daily(
                         self.bot,
                         now.replace(hour=5, minute=0, second=0, microsecond=0),
@@ -289,7 +268,7 @@ class Daily(commands.Cog):
                                     break
 
             except Exception as e:
-                ub.output_log(f"おこづかいランキングの処理でエラーが発生しました\n{e}")
+                ub.output_error(f"おこづかいランキングの処理でエラーが発生しました\n{e}")
 
             attachImage = ub.attachment_file(f"resource/image/prize/{prize}.png")
             lotoEmbed = discord.Embed(

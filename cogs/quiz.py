@@ -215,7 +215,7 @@ class Quiz(commands.Cog):
                             await quiz(self.bot, embedFooterText.split()[3]).try_response(message)
                             break
                 if not quizMessage.embeds:
-                    ub.output_log("ポケモン名が投稿されましたがクイズ投稿が見つかりませんでした")
+                    ub.output_warning("ポケモン名が投稿されましたがクイズ投稿が見つかりませんでした")
 
 
 class quiz:
@@ -321,7 +321,7 @@ class quiz:
             quizEmbed.description = f"{qDatas['中国語繁体']} -> [?]"
 
         else:
-            ub.output_log(f"不明なクイズ識別子(post): {self.quizName}")
+            ub.output_warning(f"不明なクイズ識別子(post): {self.quizName}")
             # ここでエラーを送信
             return
 
@@ -549,7 +549,7 @@ class quiz:
                 hintValue = self.ansZero["英語名"][0:1]
 
         else:
-            ub.output_log(f"不明なクイズ識別子(hint): {self.quizName}")
+            ub.output_warning(f"不明なクイズ識別子(hint): {self.quizName}")
             return
 
         # 初出のヒントならEmbedにフィールドを追加
@@ -716,7 +716,7 @@ class quiz:
             answers.append(str(aData["おなまえ"]))
 
         else:
-            ub.output_log(f"不明なクイズ識別子(answers): {self.quizName}")
+            ub.output_warning(f"不明なクイズ識別子(answers): {self.quizName}")
             return
 
         return answers, aData  # 正答のリストと0番目の正答をタプルで返す
@@ -730,7 +730,7 @@ class quiz:
         if selectedPokeData is not None:
             return selectedPokeData
         else:
-            ub.output_log(f"{self.quizName}: ERROR 正常にランダム選択できませんでした")
+            ub.output_error(f"{self.quizName}: 正常にランダム選択できませんでした")
             return None
 
     def __imageLink(self, searchWord=None):
@@ -742,7 +742,7 @@ class quiz:
                 if displayImage is not None:  # 回答ポケモンが発見できた場合
                     link = f"{cfg.EX_SOURCE_LINK}art/{displayImage.iloc[0]['ぜんこくずかんナンバー']}.png"
             else:
-                ub.output_log(f"不明なクイズ識別子(imageLink): {self.quizName}")
+                ub.output_warning(f"不明なクイズ識別子(imageLink): {self.quizName}")
         return link
 
     def __log(self, judge, exAns):

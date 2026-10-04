@@ -1,10 +1,10 @@
 ﻿# -*- coding: utf-8 -*-
 # func.py
 from .config import *
+from .logging_setup import logger
 from .normalize import format_text
 
 import os
-import getpass
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 import random
@@ -19,19 +19,21 @@ import discord
 import json
 
 def output_log(logStr):
-    """Botの動作ログをコンソールとLOG_CHANNELに出力する
+    """Botの動作ログを標準loggingへ出す
     Parameters:
     ----------
     logStr : str
       出力するログの文字列
     """
-    dt = datetime.now(ZoneInfo("Asia/Tokyo"))
-    logstr = f"[{dt.hour:02}:{dt.minute:02}:{dt.second:02}|{getpass.getuser()}] {logStr}"
-    # ログをコンソールに表示する
-    print(logstr)
-    # ログをファイルに出力し,30秒ごとに投稿する
-    with open(SYSTEMLOG_PATH, "a+", encoding="utf-8") as file:
-        file.write(logstr + "\n")
+    logger.info(logStr)
+
+def output_warning(logStr):
+    """警告。Discordのログチャンネルへ送られる。"""
+    logger.warning(logStr)
+
+def output_error(logStr):
+    """エラー。Discordのログチャンネルへ送られる。"""
+    logger.error(logStr)
 
 _POKEMON_NAME_INDEX = None
 

@@ -14,9 +14,12 @@ from dotenv import load_dotenv  # type: ignore
 # 分割されたモジュール
 from bot_module.config import DEBUG_MODE, GUILD_IDS
 import bot_module.func as ub
+from bot_module.logging_setup import setup_logging
 
 # main.pyのディレクトリに移動
 os.chdir(os.path.dirname(os.path.abspath(__file__)))
+
+setup_logging()
 
 COGS = [
     "cogs.pokedex",
@@ -24,6 +27,7 @@ COGS = [
     "cogs.daily",
     "cogs.calls",
     "cogs.auth",
+    "cogs.logs",
     "cogs.admin",
 ]
 
@@ -58,7 +62,7 @@ class UBSleepy(commands.Bot):
             for guild_id in GUILD_IDS:
                 #self.get_guild(guild_id)がNoneの場合はスキップ
                 if self.get_guild(guild_id) is None:
-                    ub.output_log(f"登録済のサーバーが見つかりません: {guild_id}")
+                    ub.output_warning(f"登録済のサーバーが見つかりません: {guild_id}")
                     continue
                 syncGuildName += f"\n#{i} {self.get_guild(guild_id).name}"
                 await self.tree.sync(guild=discord.Object(id=guild_id))
