@@ -85,9 +85,13 @@ class Daily(commands.Cog):
 
     @tasks.loop(time=time(hour=5, minute=0, tzinfo=ZoneInfo("Asia/Tokyo")))
     async def daily_bonus(self):
-        now = datetime.now(ZoneInfo("Asia/Tokyo"))
-        await post_daily(self.bot, now, cfg.DAIRY_CHANNEL_ID)
-        save_last_daily_date(now)
+        try:
+            now = datetime.now(ZoneInfo("Asia/Tokyo"))
+            await post_daily(self.bot, now, cfg.DAIRY_CHANNEL_ID)
+            save_last_daily_date(now)
+        except Exception as e:
+            # 一度の失敗で tasks.loop ごと止まらないようにする
+            ub.output_error(f"日替わり投稿に失敗しました\n{e}")
 
     @commands.Cog.listener()
     async def on_ready(self):
@@ -192,6 +196,8 @@ class Daily(commands.Cog):
             f'buttonが押されました\n {interaction.user.name}: {custom_id}'
         )
         ub.output_log("IDくじを実行します")
+        # ロールの付与・剥奪を待つあいだに3秒を超えないよう、先に応答を保留する
+        await interaction.response.defer(ephemeral=True, thinking=True)
         # カスタムIDは,"lotoIdButton:00000:0000/00/00"という形式
         lotoId = custom_id.split(":")[1]
         birth = custom_id.split(":")[2]
@@ -202,15 +208,17 @@ class Daily(commands.Cog):
 
         if not birth == str(today):
             # 過去に投稿されたくじの場合
-            await interaction.response.send_message(
+            await interaction.followup.send(
                 f"それは 今日のIDくじ じゃないロ{cfg.EXCLAMATION_ICON}", ephemeral=True
             )
         elif ub.report(interaction.user.id, "クジびきけん", 0, interaction.user.name) == 0:
             # すでにくじを引いている場合
-            await interaction.response.send_message(
+            await interaction.followup.send(
                 "くじが ひけるのは 1日1回 まで なんだロ……", ephemeral=True
             )
         else:
+            # 引換券は、おこづかいを加算するより先に消費する（連打で2回引かれないように）
+            ub.report(interaction.user.id, "クジびきけん", -1, interaction.user.name)
             userId = str(interaction.user.id)[-6:].zfill(5)  # ID下6ケタを取得
 
             matchCount = 0
@@ -287,8 +295,7 @@ class Daily(commands.Cog):
             lotoEmbed.set_author(name=f"あなたのID: {userId}")
             lotoEmbed.set_footer(text="No.15 IDくじ")
 
-            ub.report(interaction.user.id, "クジびきけん", -1, interaction.user.name)  # クジの回数を減らす
-            await interaction.response.send_message(
+            await interaction.followup.send(
                 file=attachImage[0], embed=lotoEmbed, ephemeral=True
             )
 
