@@ -1,0 +1,15 @@
+# コンテナで動かす例。apps-01 の配備とは別に、手元や他のサーバーで動かす用。
+# セーブデータ・ログ・設定・図鑑はホスト側に置いてマウントする。
+services:
+  bot:
+    build:
+      context: .
+      dockerfile: setup/Dockerfile
+    restart: unless-stopped
+    env_file: .env
+    volumes:
+      - ./save:/app/save
+      - ./log:/app/log
+      - ./config.json:/app/config.json
+      - ./resource/pokemon_senryu.csv:/app/resource/pokemon_senryu.csv
+      - ./resource/image:/app/resource/image

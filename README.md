@@ -204,3 +204,22 @@ Botの具体的なコマンドや使い方については, ドキュメントや
 このプロジェクトのライセンスは, **GNU General Public License (GPL v3)** に準拠しています. リポジトリ内の `LICENSE` ファイルを参照してください. 
 
 ---
+
+## 投稿先チャンネル（/channel）
+
+管理者がDiscordから変更できます。変更は `config.json` に保存され、再起動後も残ります。
+
+- `/channel`（引数なし）: 現在の設定を表示
+- `/channel setting:クイズ（回答の受付） channel:#クイズ` のように変更
+- 設定できるもの: クイズ（回答の受付）・日替わり投稿・ログ（警告以上）
+
+## Dockerで動かす
+
+```bash
+echo 'DISCORD_TOKEN=...' > .env
+docker compose up -d --build
+docker compose logs -f
+```
+
+- `save/`・`log/`・`config.json`・`resource/pokemon_senryu.csv`・`resource/image/` はホストにマウントして永続化します
+- イメージは `setup/Dockerfile` から作ります（`docker compose` が参照）

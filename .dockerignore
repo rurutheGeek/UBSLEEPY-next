@@ -4,5 +4,7 @@ __pycache__
 *.pyc
 .pytest_cache
 .ruff_cache
+.venv
 save
 log
+.env
