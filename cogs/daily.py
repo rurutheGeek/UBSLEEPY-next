@@ -12,6 +12,7 @@ import pandas as pd
 import bot_module.config as cfg
 import bot_module.embed as ub_embed
 import bot_module.func as ub
+from bot_module.save import SaveError
 
 GUILDS = [discord.Object(id=guild_id) for guild_id in cfg.GUILD_IDS]
 
@@ -136,7 +137,14 @@ class Daily(commands.Cog):
     @discord.app_commands.describe()
     async def pocketmoney(self, interaction: discord.Interaction):
         user_id = interaction.user.id
-        money = ub.report(user_id, "おこづかい", 0, interaction.user.name)
+        try:
+            money = ub.report(user_id, "おこづかい", 0, interaction.user.name)
+        except SaveError:
+            await interaction.response.send_message(
+                "セーブデータの読み込みに失敗しました。時間をおいて試してください",
+                ephemeral=True,
+            )
+            return
         df = pd.read_csv(cfg.REPORT_PATH, dtype={"ユーザーID": str})
         user_id = str(user_id)
 
@@ -206,97 +214,104 @@ class Daily(commands.Cog):
         if now.hour < 5:
             today = today - timedelta(days=1)
 
-        if not birth == str(today):
-            # 過去に投稿されたくじの場合
+        try:
+            if not birth == str(today):
+                # 過去に投稿されたくじの場合
+                await interaction.followup.send(
+                    f"それは 今日のIDくじ じゃないロ{cfg.EXCLAMATION_ICON}", ephemeral=True
+                )
+            elif ub.report(interaction.user.id, "クジびきけん", 0, interaction.user.name) == 0:
+                # すでにくじを引いている場合
+                await interaction.followup.send(
+                    "くじが ひけるのは 1日1回 まで なんだロ……", ephemeral=True
+                )
+            else:
+                # 引換券は、おこづかいを加算するより先に消費する（連打で2回引かれないように）
+                ub.report(interaction.user.id, "クジびきけん", -1, interaction.user.name)
+                userId = str(interaction.user.id)[-6:].zfill(5)  # ID下6ケタを取得
+
+                matchCount = 0
+                for i in range(1, 6):
+                    if userId[-i] == lotoId[-i]:
+                        matchCount += 1
+                    else:
+                        break
+
+                matchCount = str(matchCount)
+                prize = cfg.PRIZE_DICT[matchCount]["prize"]
+                value = cfg.PRIZE_DICT[matchCount]["value"]
+                text = cfg.PRIZE_DICT[matchCount]["text"]
+                place = cfg.PRIZE_DICT[matchCount]["place"]
+
+                pocketMoney = ub.report(interaction.user.id, "おこづかい", value, interaction.user.name)
+
+                dialogText = f"\n"
+
+                try:
+                    # おこづかいランキングを確認し,1位になっていた場合ロールを付与する
+                    df = pd.read_csv(cfg.REPORT_PATH, dtype={"ユーザーID": str})
+                    user_wallet = df[["ユーザーID", "おこづかい"]]
+                    user_wallet_sorted = user_wallet.sort_values(
+                        by="おこづかい", ascending=False
+                    ).reset_index(drop=True)
+
+                    if pocketMoney == user_wallet_sorted.loc[0, "おこづかい"]:
+                        dialogText = f"ロロ{cfg.EXCLAMATION_ICON}{interaction.guild.name}で いちばんの おかねもち だロト{cfg.EXCLAMATION_ICON}\n"
+                        # おかねもちロール付与の処理
+                        menymoneyRole = interaction.user.guild.get_role(cfg.MENYMONEY_ROLE_ID)
+                        if menymoneyRole not in interaction.user.roles:
+                            ub.output_log(
+                                f"おこづかい一位が変わりました: {interaction.user.name}"
+                            )
+                            await interaction.user.add_roles(menymoneyRole)
+                            ub.output_log(
+                                f"ロールを付与しました: {interaction.user.name}に{menymoneyRole.name}"
+                            )
+
+                        # 2位以下のおかねもちロールを剥奪する処理
+                        for i in range(0, len(user_wallet_sorted)):
+                            lowerUser = interaction.guild.get_member(
+                                int(user_wallet_sorted.loc[i, "ユーザーID"])
+                            )
+                            # インタラクションユーザーには実施しない
+                            if lowerUser and not interaction.user == lowerUser:
+                                if pocketMoney > user_wallet_sorted.loc[i, "おこづかい"]:
+                                    if menymoneyRole in lowerUser.roles:
+                                        await lowerUser.remove_roles(menymoneyRole)
+                                        ub.output_log(
+                                            f"ロールを剥奪しました: {lowerUser.name}から{menymoneyRole.name}"
+                                        )
+                                    else:
+                                        break
+
+                except Exception as e:
+                    ub.output_error(f"おこづかいランキングの処理でエラーが発生しました\n{e}")
+
+                attachImage = ub.attachment_file(f"resource/image/prize/{prize}.png")
+                lotoEmbed = discord.Embed(
+                    title=text,
+                    color=0xFF99C2,
+                    description=f"{place}の 商品 **{prize}**をプレゼントだロ{cfg.BANGBANG_ICON}\n"
+                    f"{dialogText}"
+                    f"それじゃあ またの 挑戦を お待ちしてるロ~~{cfg.EXCLAMATION_ICON}",
+                )
+                lotoEmbed.set_thumbnail(url=attachImage[1])
+                lotoEmbed.add_field(
+                    name=f"{interaction.user.name}は {prize}を 手に入れた!",
+                    value=f"売却価格: {value}えん\nおこづかい: {pocketMoney}えん",
+                    inline=False,
+                )
+                lotoEmbed.set_author(name=f"あなたのID: {userId}")
+                lotoEmbed.set_footer(text="No.15 IDくじ")
+
+                await interaction.followup.send(
+                    file=attachImage[0], embed=lotoEmbed, ephemeral=True
+                )
+        except SaveError:
+            ub.output_error("IDくじのセーブデータの保存に失敗しました")
             await interaction.followup.send(
-                f"それは 今日のIDくじ じゃないロ{cfg.EXCLAMATION_ICON}", ephemeral=True
-            )
-        elif ub.report(interaction.user.id, "クジびきけん", 0, interaction.user.name) == 0:
-            # すでにくじを引いている場合
-            await interaction.followup.send(
-                "くじが ひけるのは 1日1回 まで なんだロ……", ephemeral=True
-            )
-        else:
-            # 引換券は、おこづかいを加算するより先に消費する（連打で2回引かれないように）
-            ub.report(interaction.user.id, "クジびきけん", -1, interaction.user.name)
-            userId = str(interaction.user.id)[-6:].zfill(5)  # ID下6ケタを取得
-
-            matchCount = 0
-            for i in range(1, 6):
-                if userId[-i] == lotoId[-i]:
-                    matchCount += 1
-                else:
-                    break
-
-            matchCount = str(matchCount)
-            prize = cfg.PRIZE_DICT[matchCount]["prize"]
-            value = cfg.PRIZE_DICT[matchCount]["value"]
-            text = cfg.PRIZE_DICT[matchCount]["text"]
-            place = cfg.PRIZE_DICT[matchCount]["place"]
-
-            pocketMoney = ub.report(interaction.user.id, "おこづかい", value, interaction.user.name)
-
-            dialogText = f"\n"
-
-            try:
-                # おこづかいランキングを確認し,1位になっていた場合ロールを付与する
-                df = pd.read_csv(cfg.REPORT_PATH, dtype={"ユーザーID": str})
-                user_wallet = df[["ユーザーID", "おこづかい"]]
-                user_wallet_sorted = user_wallet.sort_values(
-                    by="おこづかい", ascending=False
-                ).reset_index(drop=True)
-
-                if pocketMoney == user_wallet_sorted.loc[0, "おこづかい"]:
-                    dialogText = f"ロロ{cfg.EXCLAMATION_ICON}{interaction.guild.name}で いちばんの おかねもち だロト{cfg.EXCLAMATION_ICON}\n"
-                    # おかねもちロール付与の処理
-                    menymoneyRole = interaction.user.guild.get_role(cfg.MENYMONEY_ROLE_ID)
-                    if menymoneyRole not in interaction.user.roles:
-                        ub.output_log(
-                            f"おこづかい一位が変わりました: {interaction.user.name}"
-                        )
-                        await interaction.user.add_roles(menymoneyRole)
-                        ub.output_log(
-                            f"ロールを付与しました: {interaction.user.name}に{menymoneyRole.name}"
-                        )
-
-                    # 2位以下のおかねもちロールを剥奪する処理
-                    for i in range(0, len(user_wallet_sorted)):
-                        lowerUser = interaction.guild.get_member(
-                            int(user_wallet_sorted.loc[i, "ユーザーID"])
-                        )
-                        # インタラクションユーザーには実施しない
-                        if lowerUser and not interaction.user == lowerUser:
-                            if pocketMoney > user_wallet_sorted.loc[i, "おこづかい"]:
-                                if menymoneyRole in lowerUser.roles:
-                                    await lowerUser.remove_roles(menymoneyRole)
-                                    ub.output_log(
-                                        f"ロールを剥奪しました: {lowerUser.name}から{menymoneyRole.name}"
-                                    )
-                                else:
-                                    break
-
-            except Exception as e:
-                ub.output_error(f"おこづかいランキングの処理でエラーが発生しました\n{e}")
-
-            attachImage = ub.attachment_file(f"resource/image/prize/{prize}.png")
-            lotoEmbed = discord.Embed(
-                title=text,
-                color=0xFF99C2,
-                description=f"{place}の 商品 **{prize}**をプレゼントだロ{cfg.BANGBANG_ICON}\n"
-                f"{dialogText}"
-                f"それじゃあ またの 挑戦を お待ちしてるロ~~{cfg.EXCLAMATION_ICON}",
-            )
-            lotoEmbed.set_thumbnail(url=attachImage[1])
-            lotoEmbed.add_field(
-                name=f"{interaction.user.name}は {prize}を 手に入れた!",
-                value=f"売却価格: {value}えん\nおこづかい: {pocketMoney}えん",
-                inline=False,
-            )
-            lotoEmbed.set_author(name=f"あなたのID: {userId}")
-            lotoEmbed.set_footer(text="No.15 IDくじ")
-
-            await interaction.followup.send(
-                file=attachImage[0], embed=lotoEmbed, ephemeral=True
+                "セーブデータの保存に失敗しました。時間をおいて試してください",
+                ephemeral=True,
             )
 
 

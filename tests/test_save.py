@@ -4,6 +4,7 @@
 import contextlib
 
 import pandas as pd
+import pytest
 
 from bot_module import save
 
@@ -111,7 +112,7 @@ def test_import_report_csv_keeps_large_ids(tmp_path):
     assert count == 4
 
 
-def test_report_falls_back_to_csv_when_store_fails(monkeypatch, tmp_path):
+def test_report_raises_when_store_fails_and_does_not_write_csv(monkeypatch, tmp_path):
     path = tmp_path / "report.csv"
     path.write_text(
         "ユーザーID,ユーザー名,クジびきけん,おこづかい\n", encoding="utf-8"
@@ -123,6 +124,20 @@ def test_report_falls_back_to_csv_when_store_fails(monkeypatch, tmp_path):
 
     monkeypatch.setattr(save, "get_store", lambda: BrokenStore())
     monkeypatch.setattr(save, "reset_store", lambda: None)
+
+    with pytest.raises(save.SaveError):
+        save.report(123456789, "おこづかい", 100, "テスト", path)
+
+    saved = pd.read_csv(path, index_col=0)
+    assert saved.empty  # どこにも書かない
+
+
+def test_report_uses_csv_when_store_is_not_configured(monkeypatch, tmp_path):
+    monkeypatch.setattr(save, "get_store", lambda: None)
+    path = tmp_path / "report.csv"
+    path.write_text(
+        "ユーザーID,ユーザー名,クジびきけん,おこづかい\n", encoding="utf-8"
+    )
 
     assert save.report(123456789, "おこづかい", 100, "テスト", path) == 100
     saved = pd.read_csv(path, index_col=0)

@@ -14,6 +14,7 @@ import pandas as pd
 import bot_module.config as cfg
 import bot_module.func as ub
 from bot_module.pokedex import get_pokedex
+from bot_module.save import SaveError
 
 GUILDS = [discord.Object(id=guild_id) for guild_id in cfg.GUILD_IDS]
 
@@ -80,8 +81,15 @@ class Quiz(commands.Cog):
             showName = interaction.user.name
 
         ub.output_log("戦績表示を実行します")
-        w = ub.report(showId, f"{cfg.QUIZNAME_DICT[quizname]}正答", 0, showName)
-        l = ub.report(showId, f"{cfg.QUIZNAME_DICT[quizname]}誤答", 0, showName)
+        try:
+            w = ub.report(showId, f"{cfg.QUIZNAME_DICT[quizname]}正答", 0, showName)
+            l = ub.report(showId, f"{cfg.QUIZNAME_DICT[quizname]}誤答", 0, showName)
+        except SaveError:
+            await interaction.response.send_message(
+                "セーブデータの読み込みに失敗しました。時間をおいて試してください",
+                ephemeral=True,
+            )
+            return
         await interaction.response.send_message(
             f"""{showName}さんの{quizname}戦績
 正答: {w}回 誤答: {l}回
@@ -474,9 +482,14 @@ class quiz:
             await self.rm.add_reaction(reaction)
 
         if judge is not None:
-            ub.report(
-                self.opener.id, f"{self.quizName}{judge}", 1, self.opener.name
-            )  # 回答記録のレポート
+            try:
+                ub.report(
+                    self.opener.id, f"{self.quizName}{judge}", 1, self.opener.name
+                )  # 回答記録のレポート
+            except SaveError:
+                ub.output_error("クイズ戦績の保存に失敗しました")
+                if isinstance(self.rm, discord.Message):
+                    await self.rm.reply("戦績の保存に失敗しました")
 
         self.__log(judge, self.ansList[0])
 
