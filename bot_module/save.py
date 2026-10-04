@@ -170,6 +170,10 @@ def import_report_csv(store: PostgresSaveStore, csv_path: str | Path) -> int:
     return count
 
 
+class SaveError(Exception):
+    """セーブデータの読み書きに失敗した。"""
+
+
 _STORE: PostgresSaveStore | None = None
 
 
@@ -194,17 +198,20 @@ def reset_store() -> None:
 def report(
     userId, repoIndex: str, modifi: int, userName: str, csv_path: str | Path
 ) -> int:
-    """レポート（おこづかい・クジびきけん・戦績）を1項目更新する。"""
+    """レポート（おこづかい・クジびきけん・戦績）を1項目更新する。
+
+    DBが未設定（手元での実行）のときだけCSVを使う。DBが設定されていて
+    失敗したときは、どこにも書かずSaveErrorにする。
+    """
     store = get_store()
-    if store is not None:
-        try:
-            return store.report(int(userId), repoIndex, modifi, userName)
-        except Exception as error:
-            logger.error(
-                f"セーブDBへの書き込みに失敗しました。今回はCSVを使います\n{error}"
-            )
-            reset_store()
-    return report_csv(csv_path, userId, repoIndex, modifi, userName)
+    if store is None:
+        return report_csv(csv_path, userId, repoIndex, modifi, userName)
+    try:
+        return store.report(int(userId), repoIndex, modifi, userName)
+    except Exception as error:
+        logger.error(f"セーブDBへの書き込みに失敗しました\n{error}")
+        reset_store()
+        raise SaveError("セーブデータの保存に失敗しました") from error
 
 
 def main() -> None:

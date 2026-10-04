@@ -284,3 +284,34 @@ def test_bqdata_reset_restores_defaults(monkeypatch):
 def test_quiz_filter_dict_starts_as_a_copy():
     assert quiz_module.BQ_FILTER_DICT == cfg.DEFAULT_FILTER_DICT
     assert quiz_module.BQ_FILTER_DICT is not cfg.DEFAULT_FILTER_DICT
+
+
+def test_quizrate_reports_save_error(monkeypatch):
+    from bot_module.save import SaveError
+
+    def fail(*args, **kwargs):
+        raise SaveError("失敗")
+
+    class FakeResponse:
+        def __init__(self):
+            self.messages = []
+
+        async def send_message(self, *args, **kwargs):
+            self.messages.append((args, kwargs))
+
+    interaction = type(
+        "I",
+        (),
+        {
+            "user": type("U", (), {"id": 1, "name": "tester"})(),
+            "response": FakeResponse(),
+        },
+    )()
+    monkeypatch.setattr(quiz_module.ub, "report", fail)
+    cog = quiz_module.Quiz(FakeBot())
+
+    asyncio.run(cog.quizrate.callback(cog, interaction, None, "種族値クイズ"))
+
+    assert interaction.response.messages
+    assert interaction.response.messages[-1][1]["ephemeral"] is True
+    assert "セーブデータ" in interaction.response.messages[-1][0][0]
