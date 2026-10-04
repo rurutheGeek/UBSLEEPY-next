@@ -74,6 +74,21 @@ def test_fetch_pokemon_not_found():
     assert ub.fetch_pokemon("でんきだま") is None
 
 
+def test_fetch_pokemon_empty_input():
+    assert ub.fetch_pokemon("") is None
+
+
+def test_fetch_pokemon_shared_alias_returns_all_rows():
+    result = ub.fetch_pokemon("ミライテラキオン")
+    assert result is not None
+    assert result["おなまえ"].tolist() == ["テツノイワオ", "テツノカシラ"]
+
+
+def test_pokemon_name_index_is_cached():
+    first = ub._pokemon_name_index()
+    assert first is ub._pokemon_name_index()
+
+
 def test_filter_dataframe_by_type():
     filtered = ub.filter_dataframe({"タイプ": ["はがね"]})
     assert not filtered.empty

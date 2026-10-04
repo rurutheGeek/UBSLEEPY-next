@@ -33,6 +33,34 @@ def output_log(logStr):
     with open(SYSTEMLOG_PATH, "a+", encoding="utf-8") as file:
         file.write(logstr + "\n")
 
+_POKEMON_NAME_INDEX = None
+
+
+def _pokemon_name_index():
+  '''正規化した名前・別名 → 図鑑の行番号の辞書を一度だけ作る
+
+  毎回1208行×4列をカタカナ変換していたのをやめるための索引。
+  同じ別名が複数行にある場合は、行の順にすべて持つ。
+  '''
+  global _POKEMON_NAME_INDEX
+  if _POKEMON_NAME_INDEX is None:
+    index = {}
+    name_columns = ['おなまえ', 'インデックス1', 'インデックス2', 'インデックス3']
+    for row_index, row in GLOBAL_BRELOOM_DF.iterrows():
+      row_names = set()
+      for column in name_columns:
+        value = row[column]
+        if pd.isna(value):
+          continue
+        name = jaconv.hira2kata(str(value))
+        if name:
+          row_names.add(name)
+      for name in row_names:
+        index.setdefault(name, []).append(row_index)
+    _POKEMON_NAME_INDEX = index
+  return _POKEMON_NAME_INDEX
+
+
 def fetch_pokemon(input: str) -> pd.DataFrame:
   '''ポケモン名から図鑑データを検索する
   Parameters:
@@ -44,15 +72,12 @@ def fetch_pokemon(input: str) -> pd.DataFrame:
   fixedName = format_text(input)
   
   #入力文字列先頭を辞書で置換
-  if fixedName[0] in POKENAME_PREFIX_DICT and re.match(r'[ァ-ヺー]+',fixedName[1:]):
+  if fixedName and fixedName[0] in POKENAME_PREFIX_DICT and re.match(r'[ァ-ヺー]+',fixedName[1:]):
     fixedName = POKENAME_PREFIX_DICT[fixedName[0]] + fixedName[1:]
 
-  # データベースをカタカナに
-  kata_breloom_df = GLOBAL_BRELOOM_DF.iloc[:, 1:5].applymap(lambda x: jaconv.hira2kata(str(x)))
-  SearchedData = kata_breloom_df[(kata_breloom_df['おなまえ'] == fixedName) | (kata_breloom_df['インデックス1'] == fixedName) | (kata_breloom_df['インデックス2'] == fixedName) | (kata_breloom_df['インデックス3'] == fixedName)]
-  
-  if len(SearchedData) > 0:
-    return GLOBAL_BRELOOM_DF.iloc[SearchedData.index]
+  row_indexes = _pokemon_name_index().get(fixedName)
+  if row_indexes:
+    return GLOBAL_BRELOOM_DF.iloc[row_indexes]
   else:
     output_log(fixedName+"の図鑑データは見つかりませんでした")
     return None
