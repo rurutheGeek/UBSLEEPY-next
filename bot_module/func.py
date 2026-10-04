@@ -1,5 +1,6 @@
 ﻿# -*- coding: utf-8 -*-
 # func.py
+from . import save
 from .config import *
 from .logging_setup import logger
 from .normalize import format_text
@@ -193,32 +194,7 @@ def report(userId, repoIndex: str, modifi: int, userName: str) -> int:
   レポート後の値
   '''
   output_log(f"レポートを確認します: {userId} {repoIndex}")
-  reports = pd.read_csv(REPORT_PATH, index_col=0)
-  
-  if repoIndex not in reports.columns:
-    reports[repoIndex] = 0
-    reports.to_csv(REPORT_PATH, index=True, index_label="ユーザーID", float_format="%.0f")
-    output_log(f"新たな列を作成しました: {repoIndex}")
-    
-  # 指定されたユーザーIDが既に存在する場合はその行を参照し、そうでなければ新しい行を作成する
-  if userId in reports.index:
-    row = reports.loc[userId]
-  else:
-    row = pd.DataFrame([[0] * len(reports.columns)], columns=reports.columns, index=[userId])
-    #先頭列のID以外の初期値を入力
-    #reports = reports.append(row)
-    reports = pd.concat([reports, row], ignore_index=False)
-    
-    reports.loc[userId, 'ユーザー名']=userName
-    reports.loc[userId, 'クジびきけん']=1  # レポートに新しい行を追加
-    output_log("新たなレポートを作成しました")
-  
-  if not repoIndex in ['ユーザーID','ユーザー名'] and not modifi == 0 :
-    reports.loc[userId, repoIndex] += modifi
-    reports.to_csv(REPORT_PATH, index=True, index_label="ユーザーID", float_format="%.0f") # 編集したデータをCSVファイルに書き込む
-    output_log("レポートに書き込みました")
-  
-  return reports.loc[userId, repoIndex]
+  return save.report(userId, repoIndex, modifi, userName, REPORT_PATH)
 
 
 #除外検索できるようにしたい 語頭のマイナスを検知,フラグを立てる
