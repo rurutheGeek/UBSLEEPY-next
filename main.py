@@ -25,6 +25,7 @@ setup_logging()
 COGS = [
     "cogs.pokedex",
     "cogs.quiz",
+    "cogs.search",
     "cogs.daily",
     "cogs.logs",
     "cogs.admin",

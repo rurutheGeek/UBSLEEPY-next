@@ -11,6 +11,7 @@ import bot_module.config as cfg
 COGS = [
     "cogs.pokedex",
     "cogs.quiz",
+    "cogs.search",
     "cogs.daily",
     "cogs.logs",
     "cogs.admin",
@@ -23,6 +24,7 @@ EXPECTED_COMMANDS = {
     "q",
     "quizrate",
     "bmode",
+    "search",
     "pocketmoney",
     "devtest",
     "devlogin",
