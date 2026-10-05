@@ -167,6 +167,17 @@ class FakeResponse:
         self.recorder.action("response.send_modal", title=modal.title)
 
 
+class FakeFollowup:
+    def __init__(self, recorder):
+        self.recorder = recorder
+
+    async def send(self, content=None, **kwargs):
+        self.recorder.action("followup.send", content=content, **kwargs)
+
+    async def edit_message(self, **kwargs):
+        self.recorder.action("followup.edit_message", **kwargs)
+
+
 class FakeInteraction(discord.Interaction):
     """discord.Interaction のサブクラス。isinstance判定を通すため。"""
 
@@ -183,7 +194,7 @@ class FakeInteraction(discord.Interaction):
         self.message = message
         self._guild = guild or FakeGuild()
         self._response = FakeResponse(recorder)
-        self._followup = FakeResponse(recorder)
+        self._followup = FakeFollowup(recorder)
         return self
 
     @property
