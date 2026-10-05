@@ -133,6 +133,7 @@ PKDB_PASSWORD=図鑑DBの読み取り用パスワード
 # 任意: 設定するとセーブデータをubsleepy DBへ書く。未設定ならsave/report.csvを使う
 UBSLEEPY_DB_PASSWORD=セーブDBの書き込み用パスワード
 ```
+- `config.json`（リポジトリ直下）: サーバー固有のID（ギルド・チャンネル・ロール）の設定。リポジトリには**プレースホルダ入り**で入っているので、自分のサーバーに合わせて書き換えてください。`config.json` が無い場合は `document/default_config.json` が使われます。
 - resource ディレクトリに以下のファイルを配置してください：
   - `pokemon_database.csv`: `PKDB_PASSWORD` が未設定のときの図鑑データ（設定時はpkdbが優先）
   - オプション: `pokemon_senryu.csv` や `pokemon_calendar.csv`（データを使用する場合は配置）. 
