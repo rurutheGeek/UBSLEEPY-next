@@ -8,6 +8,26 @@ import cogs.daily as daily
 import cogs.logs as logs
 
 
+class DailyFakeGuild:
+    id = 999
+    name = "test-guild"
+
+
+class DailyFakeChannel:
+    async def history(self, limit=10):
+        return
+        yield  # pragma: no cover
+
+
+class DailyFakeBot:
+    def __init__(self):
+        self.guilds = [DailyFakeGuild()]
+        self.user = None
+
+    def get_channel(self, channel_id):
+        return DailyFakeChannel()
+
+
 def test_daily_bonus_survives_exception(monkeypatch, caplog):
     saved = []
 
@@ -15,9 +35,14 @@ def test_daily_bonus_survives_exception(monkeypatch, caplog):
         raise RuntimeError("送信失敗")
 
     monkeypatch.setattr(daily, "post_daily", fail)
-    monkeypatch.setattr(daily, "save_last_daily_date", lambda day: saved.append(day))
+    monkeypatch.setattr(
+        daily, "save_last_daily_date",
+        lambda guild_id, day: saved.append((guild_id, day)))
+    monkeypatch.setattr(daily, "should_post_daily", lambda last, now: True)
+    monkeypatch.setattr(
+        daily.guild_settings, "channel_id", lambda guild_id, key: 123)
 
-    cog = daily.Daily(bot=None)
+    cog = daily.Daily(bot=DailyFakeBot())
     with caplog.at_level(logging.ERROR, logger="ubsleepy"):
         asyncio.run(daily.Daily.daily_bonus.coro(cog))
 
