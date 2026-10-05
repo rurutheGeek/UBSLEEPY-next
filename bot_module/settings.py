@@ -117,27 +117,27 @@ def load_settings(
     guild_id = str(_require(develop, "DEVELOPER_GUILD_ID", str(path)) if debug else default_guild_id)
     guild_raw = _require(raw, "GUILD_DICT", str(path))
 
-    def build_guild(entry: dict, where: str) -> GuildSettings:
+    def build_guild(entry: dict) -> GuildSettings:
+        """ギルドの既定値。未設定の項目は0（あとから /channel /role で設定できる）。"""
+        entry = entry or {}
         return GuildSettings(
-            debug_channel_id=_require(entry, "DEBUG_CHANNEL_ID", where),
-            guideline_channel_id=_require(entry, "GUIDELINE_CHANNEL_ID", where),
-            stage_channel_id=_require(entry, "STAGE_CHANNEL_ID", where),
-            dairy_channel_id=_require(entry, "DAIRY_CHANNEL_ID", where),
-            hello_channel_id=_require(entry, "HELLO_CHANNEL_ID", where),
-            quiz_channel_id=_require(entry, "QUIZ_CHANNEL_ID", where),
-            reactionrole_channel_id=_require(entry, "REACTIONROLE_CHANNEL_ID", where),
-            callstatus_channel_id=_require(entry, "CALLSTATUS_CHANNEL_ID", where),
-            log_channel_id=_require(entry, "LOG_CHANNEL_ID", where),
-            unknown_role_id=_require(entry, "UNKNOWN_ROLE_ID", where),
-            stagehost_role_id=_require(entry, "STAGEHOST_ROLE_ID", where),
-            menymoney_role_id=_require(entry, "MENYMONEY_ROLE_ID", where),
+            debug_channel_id=entry.get("DEBUG_CHANNEL_ID", 0),
+            guideline_channel_id=entry.get("GUIDELINE_CHANNEL_ID", 0),
+            stage_channel_id=entry.get("STAGE_CHANNEL_ID", 0),
+            dairy_channel_id=entry.get("DAIRY_CHANNEL_ID", 0),
+            hello_channel_id=entry.get("HELLO_CHANNEL_ID", 0),
+            quiz_channel_id=entry.get("QUIZ_CHANNEL_ID", 0),
+            reactionrole_channel_id=entry.get("REACTIONROLE_CHANNEL_ID", 0),
+            callstatus_channel_id=entry.get("CALLSTATUS_CHANNEL_ID", 0),
+            log_channel_id=entry.get("LOG_CHANNEL_ID", 0),
+            unknown_role_id=entry.get("UNKNOWN_ROLE_ID", 0),
+            stagehost_role_id=entry.get("STAGEHOST_ROLE_ID", 0),
+            menymoney_role_id=entry.get("MENYMONEY_ROLE_ID", 0),
         )
 
-    guilds = {
-        key: build_guild(entry, f"{path} の GUILD_DICT[{key}]")
-        for key, entry in guild_raw.items()
-    }
-    guild = _require(guilds, guild_id, f"{path} の GUILD_DICT")
+    guilds = {key: build_guild(entry) for key, entry in guild_raw.items()}
+    # 未登録のギルドでも起動できる（既定値はすべて0）
+    guild = guilds.get(guild_id) or build_guild({})
     emoji = _require(raw, "EMOJI_ID_DICT", str(path))
     links = _require(raw, "LINK_DICT", str(path))
     paths = _require(raw, "PATH_DICT", str(path))
