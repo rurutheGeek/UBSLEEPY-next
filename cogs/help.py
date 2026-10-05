@@ -8,8 +8,8 @@ import discord
 from discord.ext import commands
 
 import bot_module.config as cfg
+from bot_module.command_scope import scoped
 
-GUILDS = [discord.Object(id=guild_id) for guild_id in cfg.GUILD_IDS]
 
 
 class Help(commands.Cog):
@@ -50,7 +50,7 @@ class Help(commands.Cog):
         name='help', description='このBotのコマンド一覧と使い方')
     @discord.app_commands.describe(command='詳しく見たいコマンド（省略すると全部）')
     @discord.app_commands.autocomplete(command=_autocomplete)
-    @discord.app_commands.guilds(*GUILDS)
+    @scoped
     async def help(self, interaction: discord.Interaction, command: str = None):
         if command is None:
             embed = self._overview()

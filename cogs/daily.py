@@ -10,6 +10,7 @@ from discord.ext import commands, tasks
 import pandas as pd
 
 import bot_module.config as cfg
+from bot_module.command_scope import scoped
 import bot_module.embed as ub_embed
 import bot_module.func as ub
 import bot_module.guild_settings as guild_settings
@@ -20,7 +21,6 @@ def dairy_channel_id() -> int:
     """日替わり投稿先チャンネル（DB → 既定値）。"""
     return guild_settings.channel_id(cfg.ACTIVE_GUILD_ID, 'DAIRY_CHANNEL_ID')
 
-GUILDS = [discord.Object(id=guild_id) for guild_id in cfg.GUILD_IDS]
 
 # 最後に日替わり投稿を出した日付を残すファイル（save/ はバックアップ対象）
 LAST_DAILY_PATH = "save/last_daily.txt"
@@ -139,7 +139,7 @@ class Daily(commands.Cog):
 
     # おこづかいランキングを表示するコマンド
     @discord.app_commands.command(name="pocketmoney", description="おこづかいの残高照会をします")
-    @discord.app_commands.guilds(*GUILDS)
+    @scoped
     @discord.app_commands.describe()
     async def pocketmoney(self, interaction: discord.Interaction):
         user_id = interaction.user.id

@@ -12,12 +12,12 @@ import jaconv
 import pandas as pd
 
 import bot_module.config as cfg
+from bot_module.command_scope import scoped
 import bot_module.func as ub
 import bot_module.guild_settings as guild_settings
 from bot_module.pokedex import get_pokedex
 from bot_module.save import SaveError
 
-GUILDS = [discord.Object(id=guild_id) for guild_id in cfg.GUILD_IDS]
 
 # 実行時の状態（configから移した）
 BQ_FILTER_DICT = copy.deepcopy(cfg.DEFAULT_FILTER_DICT)  # 現在の出題条件
@@ -37,7 +37,7 @@ class Quiz(commands.Cog):
         get_pokedex()
 
     @discord.app_commands.command(name="q", description="現在の出題設定に基づいてクイズを出題します")
-    @discord.app_commands.guilds(*GUILDS)
+    @scoped
     @discord.app_commands.describe(
         quizname="クイズの種別 未記入で種族値クイズが指定されます"
     )
@@ -57,7 +57,7 @@ class Quiz(commands.Cog):
         await quiz(self.bot, cfg.QUIZNAME_DICT[quizname]).post(interaction.channel)
 
     @discord.app_commands.command(name="quizrate", description="クイズの戦績を表示します")
-    @discord.app_commands.guilds(*GUILDS)
+    @scoped
     @discord.app_commands.describe(
         user="表示したいメンバー名",
         quizname="クイズの種別 未記入で種族値クイズが指定されます",
@@ -98,7 +98,7 @@ class Quiz(commands.Cog):
         )
 
     @discord.app_commands.command(name="bmode", description="クイズの連続出題モードを切り替えます")
-    @discord.app_commands.guilds(*GUILDS)
+    @scoped
     @discord.app_commands.describe(mode="連続出題モードのオンオフ 未記入でトグル切り替え")
     @discord.app_commands.choices(
         mode=[

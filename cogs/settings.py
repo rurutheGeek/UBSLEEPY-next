@@ -5,10 +5,10 @@ import discord
 from discord.ext import commands
 
 import bot_module.config as cfg
+from bot_module.command_scope import scoped
 import bot_module.func as ub
 import bot_module.guild_settings as guild_settings
 
-GUILDS = [discord.Object(id=guild_id) for guild_id in cfg.GUILD_IDS]
 
 CHANNEL_CHOICES = [
     ('クイズ（回答の受付）', 'QUIZ_CHANNEL_ID'),
@@ -26,7 +26,7 @@ class Settings(commands.Cog):
 
     @discord.app_commands.command(
         name="channel", description="機能ごとの投稿先チャンネルを設定します")
-    @discord.app_commands.guilds(*GUILDS)
+    @scoped
     @discord.app_commands.describe(
         setting="設定する機能", channel="投稿先チャンネル（省略すると現在の設定を表示）")
     @discord.app_commands.choices(
@@ -35,11 +35,15 @@ class Settings(commands.Cog):
             for label, key in CHANNEL_CHOICES
         ]
     )
-    @discord.app_commands.default_permissions(administrator=True)
+    @discord.app_commands.default_permissions(manage_guild=True)
     async def channel_command(
         self, interaction: discord.Interaction,
         setting: str = None, channel: discord.TextChannel = None
     ):
+        if not interaction.user.guild_permissions.manage_guild:
+            await interaction.response.send_message(
+                "この操作は「サーバー管理」の権限が必要です", ephemeral=True)
+            return
         if setting is None or channel is None:
             lines = []
             for label, key in CHANNEL_CHOICES:

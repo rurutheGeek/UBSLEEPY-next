@@ -12,10 +12,10 @@ import discord
 from discord.ext import commands
 
 import bot_module.config as cfg
+from bot_module.command_scope import scoped
 from bot_module.pokedex import get_pokedex
 from bot_module.search import SearchQuery
 
-GUILDS = [discord.Object(id=guild_id) for guild_id in cfg.GUILD_IDS]
 
 PAGE_SIZE = 10
 _QUERY_PREFIX = "条件: "
@@ -323,7 +323,7 @@ class Search(commands.Cog):
     @discord.app_commands.command(
         name="search", description="タイプや種族値などの条件でポケモンを検索します"
     )
-    @discord.app_commands.guilds(*GUILDS)
+    @scoped
     @discord.app_commands.describe(
         query="検索条件。未記入でGUIが開きます（例: みず ふゆう 8 A>=130）"
     )
