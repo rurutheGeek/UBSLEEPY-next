@@ -153,18 +153,25 @@ class FakeMessage(discord.Message):
 class FakeResponse:
     def __init__(self, recorder):
         self.recorder = recorder
+        self._done = False
 
     async def defer(self, **kwargs):
+        self._done = True
         self.recorder.action("response.defer", **kwargs)
 
     async def send_message(self, content=None, **kwargs):
+        self._done = True
         self.recorder.action("response.send_message", content=content, **kwargs)
 
     async def edit_message(self, **kwargs):
         self.recorder.action("response.edit_message", **kwargs)
 
     async def send_modal(self, modal):
+        self._done = True
         self.recorder.action("response.send_modal", title=modal.title)
+
+    def is_done(self):
+        return self._done
 
 
 class FakeFollowup:
@@ -314,7 +321,7 @@ class Harness:
         self.quiz_message = None
         self.quiz_name = None
         self._report_state = {}
-        quiz.BAKUSOKU_MODE = False
+        self.quiz_cog.state.bakusoku_mode = False
         if self.save_module.get_store() is None:
             self._ensure_csv_report()
         self._stub_attachments()
@@ -452,7 +459,8 @@ class Harness:
         if self.quiz_message is None:
             print("先に q で出題してください")
             return
-        worker = self.quiz_module.quiz(self.bot, self.quiz_name)
+        worker = self.quiz_module.QuizSession(self.bot, self.quiz_name,
+                                       self.quiz_cog.state)
         if interaction:
             press = FakeInteraction(
                 self.recorder,

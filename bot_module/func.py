@@ -34,6 +34,22 @@ def output_error(logStr):
     """エラー。Discordのログチャンネルへ送られる。"""
     logger.error(logStr)
 
+SAVE_READ_ERROR = "セーブデータの読み込みに失敗しました。時間をおいて試してください"
+SAVE_WRITE_ERROR = "セーブデータの保存に失敗しました。時間をおいて試してください"
+
+async def save_error(interaction, write: bool = False, log: str = ""):
+    """セーブデータの失敗を定型応答する（ephemeral）。
+
+    defer済みならfollowupへ送る。log を渡すとエラーログにも残す。
+    """
+    if log:
+        output_error(log)
+    message = SAVE_WRITE_ERROR if write else SAVE_READ_ERROR
+    if interaction.response.is_done():
+        await interaction.followup.send(message, ephemeral=True)
+    else:
+        await interaction.response.send_message(message, ephemeral=True)
+
 def fetch_pokemon(input: str) -> list[Pokemon]:
   '''ポケモン名から図鑑データを検索する
   Parameters:

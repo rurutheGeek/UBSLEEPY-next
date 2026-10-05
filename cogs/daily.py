@@ -17,7 +17,7 @@ import bot_module.save as save
 from bot_module.save import SaveError
 
 
-# 最後に日替わり投稿を出した日付（ギルドごと）。DBが無い手元はファイル。
+# 最後に日替わり投稿を出した日付（ギルドごと）。DBが無い手元（開発用）はファイル。
 LAST_DAILY_KEY = 'LAST_DAILY_DATE'
 
 
@@ -162,10 +162,7 @@ class Daily(commands.Cog):
         try:
             money = ub.report(user_id, "おこづかい", 0, interaction.user.name)
         except SaveError:
-            await interaction.response.send_message(
-                "セーブデータの読み込みに失敗しました。時間をおいて試してください",
-                ephemeral=True,
-            )
+            await ub.save_error(interaction)
             return
         ranking_list = ub.ranking("おこづかい", 5)
         userRank = ub.rank(user_id, "おこづかい")
@@ -276,20 +273,20 @@ class Daily(commands.Cog):
                                     f"ロールを付与しました: {interaction.user.name}に{menymoneyRole.name}"
                                 )
 
-                            # 2位以下のおかねもちロールを剥奪する処理
-                            for user_id, money, _rank in ub.ranking(
+                            # 2位以下のおかねもちロールを剥奪する処理。
+                            # 1位以外は持っていないはずなので、持っている人全員から外す
+                            # （間に持っていない人がいても止めない）。
+                            for user_id, _money, _rank in ub.ranking(
                                     "おこづかい", 100):
                                 lowerUser = interaction.guild.get_member(int(user_id))
                                 # インタラクションユーザーには実施しない
-                                if lowerUser and not interaction.user == lowerUser:
-                                    if pocketMoney > money:
-                                        if menymoneyRole in lowerUser.roles:
-                                            await lowerUser.remove_roles(menymoneyRole)
-                                            ub.output_log(
-                                                f"ロールを剥奪しました: {lowerUser.name}から{menymoneyRole.name}"
-                                            )
-                                        else:
-                                            break
+                                if lowerUser is None or lowerUser == interaction.user:
+                                    continue
+                                if menymoneyRole in lowerUser.roles:
+                                    await lowerUser.remove_roles(menymoneyRole)
+                                    ub.output_log(
+                                        f"ロールを剥奪しました: {lowerUser.name}から{menymoneyRole.name}"
+                                    )
 
                 except Exception as e:
                     ub.output_error(f"おこづかいランキングの処理でエラーが発生しました\n{e}")
@@ -315,11 +312,9 @@ class Daily(commands.Cog):
                     file=attachImage[0], embed=lotoEmbed, ephemeral=True
                 )
         except SaveError:
-            ub.output_error("IDくじのセーブデータの保存に失敗しました")
-            await interaction.followup.send(
-                "セーブデータの保存に失敗しました。時間をおいて試してください",
-                ephemeral=True,
-            )
+            await ub.save_error(
+                interaction, write=True,
+                log="IDくじのセーブデータの保存に失敗しました")
 
 
 async def setup(bot):

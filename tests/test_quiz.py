@@ -7,6 +7,7 @@ import logging
 import discord
 
 import bot_module.config as cfg
+import bot_module.quiz_session as session_module
 import cogs.quiz as quiz_module
 from bot_module.pokedex import Pokemon
 
@@ -110,7 +111,7 @@ class FakeRM:
 
 
 def _quiz(quiz_name="bq"):
-    return quiz_module.quiz(FakeBot(), quiz_name)
+    return quiz_module.QuizSession(FakeBot(), quiz_name)
 
 
 def test_hint_shows_second_ability_when_all_abilities_are_shown():
@@ -124,7 +125,7 @@ def test_hint_shows_second_ability_when_all_abilities_are_shown():
         ability_1="しんりょく", ability_2="ようりょくそ", ability_h="くさのけがわ"
     )
 
-    asyncio.run(q._quiz__hint())
+    asyncio.run(q._QuizSession__hint())
 
     assert q.rm.replies == ["とくせいはしんりょく/ようりょくそ/くさのけがわです"]
 
@@ -213,13 +214,13 @@ def test_pokemon_name_finds_unanswered_quiz(monkeypatch, caplog):
     calls = []
 
     class FakeQuiz:
-        def __init__(self, bot, quiz_name):
+        def __init__(self, bot, quiz_name, state=None):
             calls.append(quiz_name)
 
         async def try_response(self, response):
             calls.append(("try_response", response))
 
-    monkeypatch.setattr(quiz_module, "quiz", FakeQuiz)
+    monkeypatch.setattr(quiz_module, "QuizSession", FakeQuiz)
 
     with caplog.at_level(logging.WARNING, logger="ubsleepy"):
         asyncio.run(cog.on_message(message))
@@ -240,7 +241,7 @@ class FakePokedex:
 
 
 def test_bq_post_reports_no_matching_pokemon(monkeypatch):
-    monkeypatch.setattr(quiz_module, "get_pokedex", lambda: FakePokedex())
+    monkeypatch.setattr(session_module, "get_pokedex", lambda: FakePokedex())
     channel = FakeChannel()
 
     asyncio.run(_quiz().post(channel))
@@ -254,9 +255,7 @@ def test_bqdata_removing_unset_key_does_not_raise(monkeypatch):
     channel = FakeChannel()
     message = FakeMessage(author=FakeUser(), content="/bqdata タイプ", channel=channel)
 
-    monkeypatch.setattr(
-        quiz_module, "BQ_FILTER_DICT", {"進化段階": ["最終進化", "進化しない"]}
-    )
+    cog.state.bq_filter_dict = {"進化段階": ["最終進化", "進化しない"]}
     monkeypatch.setattr(quiz_module.ub, "make_filter_dict", lambda words: {})
 
     asyncio.run(cog.on_message(message))
@@ -273,18 +272,19 @@ def test_bqdata_reset_restores_defaults(monkeypatch):
 
     default = {"出身地": ["カントー"]}
     monkeypatch.setattr(cfg, "DEFAULT_FILTER_DICT", default)
-    monkeypatch.setattr(quiz_module, "BQ_FILTER_DICT", {"進化段階": ["最終進化"]})
+    cog.state.bq_filter_dict = {"進化段階": ["最終進化"]}
     monkeypatch.setattr(quiz_module.ub, "make_filter_dict", lambda words: {})
 
     asyncio.run(cog.on_message(message))
 
-    assert quiz_module.BQ_FILTER_DICT == default
-    assert quiz_module.BQ_FILTER_DICT is not default
+    assert cog.state.bq_filter_dict == default
+    assert cog.state.bq_filter_dict is not default
 
 
 def test_quiz_filter_dict_starts_as_a_copy():
-    assert quiz_module.BQ_FILTER_DICT == cfg.DEFAULT_FILTER_DICT
-    assert quiz_module.BQ_FILTER_DICT is not cfg.DEFAULT_FILTER_DICT
+    cog = quiz_module.Quiz(FakeBot())
+    assert cog.state.bq_filter_dict == cfg.DEFAULT_FILTER_DICT
+    assert cog.state.bq_filter_dict is not cfg.DEFAULT_FILTER_DICT
 
 
 def test_quizrate_reports_save_error(monkeypatch):
@@ -299,6 +299,9 @@ def test_quizrate_reports_save_error(monkeypatch):
 
         async def send_message(self, *args, **kwargs):
             self.messages.append((args, kwargs))
+
+        def is_done(self):
+            return False
 
     interaction = type(
         "I",

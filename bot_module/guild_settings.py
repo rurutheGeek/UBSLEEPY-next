@@ -8,7 +8,7 @@ config.json は「既定値＋開発用」として残す。
 場合は再起動まで反映されない）。
 """
 import bot_module.config as cfg
-from bot_module import config_file, save
+from bot_module import save
 
 _CACHE: dict = {}
 
@@ -34,16 +34,15 @@ def setting(guild_id, key: str) -> int:
 
 
 def set_setting(guild_id, key: str, value: int) -> str:
-    """保存して保存先を返す: 'db' / 'config'（DB未設定の手元） / 'failed'。"""
+    """DBへ保存する。保存できたら 'db'、DB未設定・失敗なら 'failed'。
+
+    config.json は既定値の置き場なので、ここからは書き換えない。
+    """
     try:
-        if save.set_guild_setting(guild_id, key, value):
-            _CACHE[(int(guild_id), key)] = int(value)
-            return 'db'
+        saved = save.set_guild_setting(guild_id, key, value)
     except save.SaveError:
+        saved = False
+    if not saved:
         return 'failed'
-    if str(guild_id) not in cfg.GUILD_SETTINGS:
-        # config.json に無いギルドへ書き込むと、次回起動の設定読み込みが壊れる
-        return 'failed'
-    config_file.update_config("config.json", guild_id, key, value)
     _CACHE[(int(guild_id), key)] = int(value)
-    return 'config'
+    return 'db'

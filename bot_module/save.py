@@ -4,7 +4,8 @@
 
 pkdbサーバーの `ubsleepy` DB へ1件ずつupsertする。CSVのような
 「読んで全部書き直す」をやめ、同時更新でも壊れないようにする。
-`UBSLEEPY_DB_PASSWORD` が無いときは従来どおりCSVを使う。
+`UBSLEEPY_DB_PASSWORD` が無いときは従来どおりCSVを使うが、これは
+ローカル開発・テスト専用。本番（コンテナ）は必ずDBが設定される。
 """
 from __future__ import annotations
 
@@ -240,10 +241,16 @@ class PostgresSaveStore:
             self._connection = None
 
 
+# ---------------------------------------------------------------------------
+# ここから下はDB未設定（ローカル開発・テスト）のときだけ通るCSV実装。
+# 本番は get_store() が必ずDBストアを返すので使われない。
+# ---------------------------------------------------------------------------
+
+
 def report_csv(
     csv_path: str | Path, userId, repoIndex: str, modifi: int, userName: str
 ) -> int:
-    """従来のCSV保存（DBが使えないとき）。"""
+    """従来のCSV保存（DBが使えないとき。開発専用）。"""
     reports = pd.read_csv(csv_path, index_col=0)
 
     if repoIndex not in reports.columns:

@@ -53,3 +53,18 @@ def test_set_setting_updates_cache(monkeypatch):
 
     assert guild_settings.set_setting(1, "QUIZ_CHANNEL_ID", 222) == 'db'
     assert guild_settings.setting(1, "QUIZ_CHANNEL_ID") == 222
+
+
+def test_set_setting_without_db_is_failed(monkeypatch):
+    monkeypatch.setattr(save, "set_guild_setting", lambda g, k, v: False)
+
+    assert guild_settings.set_setting(1, "QUIZ_CHANNEL_ID", 222) == 'failed'
+
+
+def test_set_setting_save_error_is_failed(monkeypatch):
+    def raise_error(guild_id, key, value):
+        raise save.SaveError("保存できません")
+
+    monkeypatch.setattr(save, "set_guild_setting", raise_error)
+
+    assert guild_settings.set_setting(1, "QUIZ_CHANNEL_ID", 222) == 'failed'
