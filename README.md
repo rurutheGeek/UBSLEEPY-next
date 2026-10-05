@@ -191,6 +191,30 @@ python main.py
 
 Botの具体的なコマンドや使い方については, ドキュメントやコード内のコメントを参照してください. 
 
+### Discordなしで試す（デバッグCLI）
+
+Discordへ接続せず、本物のCogのコマンドを偽のDiscordオブジェクトで呼んで、送られる内容を標準出力へ出します.
+
+```bash
+python debug_cli.py dex リザードン
+python debug_cli.py search みず 合計<400
+python debug_cli.py               # 対話モード
+```
+
+対話モードでは出題してから回答まで試せます:
+
+```
+ubsleepy-debug> q bq
+ubsleepy-debug> hint ヒント
+ubsleepy-debug> answer リザードン
+ubsleepy-debug> give
+```
+
+- 既定ではセーブの増減を書きません（表示だけ）。読み取りは本物の保存先を見ます。`--save` で増減も設定された保存先（CSVまたはDB）へ実際に書きます
+- 図鑑とセーブの接続先は環境変数（`PKDB_PASSWORD`・`UBSLEEPY_DB_PASSWORD`）に従います。`sources` コマンドで確認できます
+- `--debug` で開発用ギルドの設定を使います
+- 画像ファイルが無い手元でも動くよう、添付画像はパス名の表示だけにしています
+
 ---
 
 ## 貢献

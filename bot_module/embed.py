@@ -36,10 +36,12 @@ def balance(userName: str, pocketMoney: int,numOfPeople:int,userRank: int,rank_l
             f"{BALL_ICON}**あずけている きんがく    {pocketMoney}円**\n\n　"\
     )
     rankMsg=""
-    for i in range(0, 5):
-        id=rank_list[i][0]
-        money=rank_list[i][1]
-        rank=rank_list[i][2]
+    if not rank_list:
+        rankMsg="まだ ランキングは ないみたい\n"
+    for entry in rank_list[:5]:
+        id=entry[0]
+        money=entry[1]
+        rank=entry[2]
         rankMsg+=f"#{rank:.0f}  I <@!{id}> "
         rankMsg+='\N{Military Medal}' if rank == 1 else ''
         rankMsg+=f"`{money}円`\n"
