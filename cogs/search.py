@@ -66,7 +66,9 @@ def build_panel_embed(query: SearchQuery) -> discord.Embed:
         name="使い方",
         value=(
             "下のメニューで絞り込み、「検索する」を押してください。\n"
-            "特性や種族値は「直接入力」から（例: `ふゆう A>=130 合計<600`）。"
+            "タイプ・特性は複数選ぶと**両方を持つ**ポケモンに絞ります（地方・世代・進化段階はどれか）。\n"
+            "直接入力では `ノーマル&ひこう` で両方、`ノーマル ひこう` や `ノーマル|ひこう` でどちらかです。\n"
+            "種族値の例: `ふゆう A>=130 合計<600`"
         ),
         inline=False,
     )
@@ -109,6 +111,7 @@ async def _update_panel(interaction: discord.Interaction, category: str, values)
     query = SearchQuery.parse(words)
     if category == "type":
         query.types = list(values)
+        query.types_any = []
     elif category == "generation":
         query.generations = [int(value) for value in values]
     elif category == "stage":
@@ -133,11 +136,15 @@ async def _send_results(interaction: discord.Interaction, query: SearchQuery):
 class _TypeSelect(discord.ui.Select):
     def __init__(self, query: SearchQuery):
         options = [
-            discord.SelectOption(label=type_name, value=type_name, default=type_name in query.types)
+            discord.SelectOption(
+                label=type_name,
+                value=type_name,
+                default=type_name in query.types or type_name in query.types_any,
+            )
             for type_name in sorted(get_pokedex().types())
         ]
         super().__init__(
-            placeholder="タイプで絞り込む（2つまで）",
+            placeholder="タイプで絞り込む（2つまで・両方に一致）",
             custom_id="search_type",
             min_values=0,
             max_values=2,

@@ -162,8 +162,10 @@ def _evaluate_node(node: ast.AST, values: dict):
 class SearchQuery:
     """検索条件。GUIのパネルはこのオブジェクトを語の並びに戻して持つ。"""
 
-    types: list[str] = field(default_factory=list)
-    abilities: list[str] = field(default_factory=list)
+    types: list[str] = field(default_factory=list)  # すべて持つ（AND）
+    types_any: list[str] = field(default_factory=list)  # どれかを持つ（OR）
+    abilities: list[str] = field(default_factory=list)  # すべて持つ（AND）
+    abilities_any: list[str] = field(default_factory=list)  # どれかを持つ（OR）
     regions: list[str] = field(default_factory=list)
     generations: list[int] = field(default_factory=list)
     stages: list[str] = field(default_factory=list)
@@ -179,10 +181,29 @@ class SearchQuery:
             word = str(raw).strip().strip(",、")
             if not word:
                 continue
+            # タイプ・特性は `A&B` で両方（AND）、`A|B` か空白区切りでどちらか（OR）
+            if "&" in word:
+                parts = [part for part in word.split("&") if part]
+                if parts and all(part in pokedex.types() for part in parts):
+                    query.types.extend(parts)
+                elif parts and all(part in pokedex.abilities() for part in parts):
+                    query.abilities.extend(parts)
+                else:
+                    query.unknown.append(word)
+                continue
+            if "|" in word:
+                parts = [part for part in word.split("|") if part]
+                if parts and all(part in pokedex.types() for part in parts):
+                    query.types_any.extend(parts)
+                elif parts and all(part in pokedex.abilities() for part in parts):
+                    query.abilities_any.extend(parts)
+                else:
+                    query.unknown.append(word)
+                continue
             if word in pokedex.types():
-                query.types.append(word)
+                query.types_any.append(word)
             elif word in pokedex.abilities():
-                query.abilities.append(word)
+                query.abilities_any.append(word)
             elif word in pokedex.regions():
                 query.regions.append(word)
             elif word in EVOLUTION_STAGES:
@@ -201,7 +222,9 @@ class SearchQuery:
     def has_conditions(self) -> bool:
         return bool(
             self.types
+            or self.types_any
             or self.abilities
+            or self.abilities_any
             or self.regions
             or self.generations
             or self.stages
@@ -209,21 +232,29 @@ class SearchQuery:
         )
 
     def to_words(self) -> list[str]:
-        return [
-            *self.types,
-            *self.abilities,
-            *self.regions,
-            *[str(generation) for generation in self.generations],
-            *self.stages,
-            *[expression for expression, _ in self.expressions],
-        ]
+        words = []
+        if self.types:
+            words.append("&".join(self.types))
+        words.extend(self.types_any)
+        if self.abilities:
+            words.append("&".join(self.abilities))
+        words.extend(self.abilities_any)
+        words.extend(self.regions)
+        words.extend(str(generation) for generation in self.generations)
+        words.extend(self.stages)
+        words.extend(expression for expression, _ in self.expressions)
+        return words
 
     def describe(self) -> list[tuple[str, str]]:
         conditions = []
         if self.types:
-            conditions.append(("タイプ", "・".join(self.types)))
+            conditions.append(("タイプ（両方）", "・".join(self.types)))
+        if self.types_any:
+            conditions.append(("タイプ（どれか）", "・".join(self.types_any)))
         if self.abilities:
-            conditions.append(("特性", "・".join(self.abilities)))
+            conditions.append(("特性（両方）", "・".join(self.abilities)))
+        if self.abilities_any:
+            conditions.append(("特性（どれか）", "・".join(self.abilities_any)))
         if self.regions:
             conditions.append(("地方", "・".join(self.regions)))
         if self.generations:
@@ -241,9 +272,15 @@ class SearchQuery:
         return conditions
 
     def matches(self, pokemon: Pokemon) -> bool:
-        if self.types and not any(t in pokemon.types for t in self.types):
+        # タイプ・特性は複数持てるので、複数指定は「すべて持つ」（AND）。
+        # 地方・世代・進化段階は1つしか持たないので、複数指定は「どれか」（OR）。
+        if self.types and not all(t in pokemon.types for t in self.types):
             return False
-        if self.abilities and not any(a in pokemon.abilities for a in self.abilities):
+        if self.types_any and not any(t in pokemon.types for t in self.types_any):
+            return False
+        if self.abilities and not all(a in pokemon.abilities for a in self.abilities):
+            return False
+        if self.abilities_any and not any(a in pokemon.abilities for a in self.abilities_any):
             return False
         if self.regions and pokemon.region not in self.regions:
             return False
