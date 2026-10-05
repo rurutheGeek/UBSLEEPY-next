@@ -201,9 +201,9 @@ class SearchQuery:
                     query.unknown.append(word)
                 continue
             if word in pokedex.types():
-                query.types_any.append(word)
+                query.types.append(word)
             elif word in pokedex.abilities():
-                query.abilities_any.append(word)
+                query.abilities.append(word)
             elif word in pokedex.regions():
                 query.regions.append(word)
             elif word in EVOLUTION_STAGES:
@@ -235,10 +235,12 @@ class SearchQuery:
         words = []
         if self.types:
             words.append("&".join(self.types))
-        words.extend(self.types_any)
+        if self.types_any:
+            words.append("|".join(self.types_any))
         if self.abilities:
             words.append("&".join(self.abilities))
-        words.extend(self.abilities_any)
+        if self.abilities_any:
+            words.append("|".join(self.abilities_any))
         words.extend(self.regions)
         words.extend(str(generation) for generation in self.generations)
         words.extend(self.stages)
@@ -272,8 +274,8 @@ class SearchQuery:
         return conditions
 
     def matches(self, pokemon: Pokemon) -> bool:
-        # タイプ・特性は複数持てるので、複数指定は「すべて持つ」（AND）。
-        # 地方・世代・進化段階は1つしか持たないので、複数指定は「どれか」（OR）。
+        # 空白・& で並べた語は「すべて満たす」（AND）。`|` は「どれか」（OR）。
+        # ただし地方・世代・進化段階は1つしか持てないので、複数指定は「どれか」。
         if self.types and not all(t in pokemon.types for t in self.types):
             return False
         if self.types_any and not any(t in pokemon.types for t in self.types_any):
