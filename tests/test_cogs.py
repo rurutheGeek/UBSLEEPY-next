@@ -109,3 +109,22 @@ def test_on_ready_debug_syncs_only_the_developer_guild(monkeypatch):
 
     assert len(synced) == 1
     assert synced[0]["guild"].id == 111111111111111111
+
+
+def test_on_ready_skips_guilds_the_bot_is_not_in(monkeypatch):
+    import main
+
+    monkeypatch.setattr(main, "DEBUG_MODE", False)
+    monkeypatch.setattr(main, "GUILD_IDS", [111111111111111111])
+    bot = main.UBSleepy()
+    calls = []
+
+    async def fake_sync(*, guild=None):
+        calls.append(guild)
+
+    bot.tree.sync = fake_sync
+    bot.get_guild = lambda guild_id: None
+
+    asyncio.run(bot.on_ready())
+
+    assert calls == [None]  # 未参加ギルドは触らず、グローバル同期だけ

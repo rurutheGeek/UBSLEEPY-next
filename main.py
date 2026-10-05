@@ -88,8 +88,11 @@ class UBSleepy(commands.Bot):
             ub.output_log(f"登録済のサーバーを1個読み込みました\n#0 {guild.name}")
             return
 
-        # 通常はグローバル登録。以前のギルド限定コマンドを消してから配信する
+        # 通常はグローバル登録。以前のギルド限定コマンドを消してから配信する。
+        # 設定に載っていてもBotが居ないギルドはスキップ（403になるため）
         for guild_id in GUILD_IDS:
+            if self.get_guild(guild_id) is None:
+                continue
             guild = discord.Object(id=guild_id)
             self.tree.clear_commands(guild=guild)
             await self.tree.sync(guild=guild)
