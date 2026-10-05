@@ -305,6 +305,7 @@ def test_quizrate_reports_save_error(monkeypatch):
         (),
         {
             "user": type("U", (), {"id": 1, "name": "tester"})(),
+            "guild": type("G", (), {"id": 999})(),
             "response": FakeResponse(),
         },
     )()

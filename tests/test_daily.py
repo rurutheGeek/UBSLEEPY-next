@@ -58,6 +58,7 @@ class FakeInteraction:
     def __init__(self, custom_id="lotoIdButton:12345:2000/01/01"):
         self.data = {"component_type": 2, "custom_id": custom_id}
         self.user = type("U", (), {"id": 123456, "name": "tester"})()
+        self.guild = type("G", (), {"id": 999, "name": "test-guild"})()
         self.response = FakeResponse()
         self.followup = FakeFollowup()
 

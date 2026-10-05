@@ -348,9 +348,10 @@ class Harness:
 
         self._original_report = ub.report
 
-        def fake_report(user_id, index, modifi, user_name):
+        def fake_report(guild_id, user_id, index, modifi, user_name):
             # 読み取り（modifi=0）は本物の保存先から。増減は表示だけにする。
-            current = self._original_report(user_id, index, 0, user_name)
+            current = self._original_report(
+                guild_id, user_id, index, 0, user_name)
             if modifi == 0:
                 return current
             value = current + modifi
