@@ -13,30 +13,39 @@ from bot_module.command_scope import scoped
 import bot_module.embed as ub_embed
 import bot_module.func as ub
 import bot_module.guild_settings as guild_settings
+import bot_module.save as save
 from bot_module.save import SaveError
 
 
-def dairy_channel_id() -> int:
-    """日替わり投稿先チャンネル（DB → 既定値）。"""
-    return guild_settings.channel_id(cfg.ACTIVE_GUILD_ID, 'DAIRY_CHANNEL_ID')
+# 最後に日替わり投稿を出した日付（ギルドごと）。DBが無い手元はファイル。
+LAST_DAILY_KEY = 'LAST_DAILY_DATE'
 
 
-# 最後に日替わり投稿を出した日付を残すファイル（save/ はバックアップ対象）
-LAST_DAILY_PATH = "save/last_daily.txt"
+def _last_daily_path(guild_id) -> str:
+    return f"save/last_daily_{guild_id}.txt"
 
 
-def read_last_daily_date() -> str | None:
+def read_last_daily_date(guild_id) -> str | None:
     """最後に日替わり投稿を出した日付（%Y/%m/%d）を返す。無ければNone。"""
-    try:
-        with open(LAST_DAILY_PATH, encoding="utf-8") as file:
-            value = file.read().strip()
-    except FileNotFoundError:
-        return None
-    return value or None
+    value = save.get_guild_setting(guild_id, LAST_DAILY_KEY)
+    if value:
+        text = str(value)
+        return f"{text[0:4]}/{text[4:6]}/{text[6:8]}"
+    if save.get_store() is None:
+        try:
+            with open(_last_daily_path(guild_id), encoding="utf-8") as file:
+                return file.read().strip() or None
+        except FileNotFoundError:
+            return None
+    return None
 
 
-def save_last_daily_date(day: datetime) -> None:
-    with open(LAST_DAILY_PATH, "w", encoding="utf-8") as file:
+def save_last_daily_date(guild_id, day: datetime) -> None:
+    if save.set_guild_setting(
+            guild_id, LAST_DAILY_KEY, int(day.strftime('%Y%m%d'))):
+        return
+    # DB未設定の手元はファイルに残す
+    with open(_last_daily_path(guild_id), "w", encoding="utf-8") as file:
         file.write(day.strftime("%Y/%m/%d"))
 
 
@@ -88,13 +97,41 @@ class Daily(commands.Cog):
 
     @tasks.loop(time=time(hour=5, minute=0, tzinfo=ZoneInfo("Asia/Tokyo")))
     async def daily_bonus(self):
-        try:
-            now = datetime.now(ZoneInfo("Asia/Tokyo"))
-            await post_daily(self.bot, now, dairy_channel_id())
-            save_last_daily_date(now)
-        except Exception as e:
-            # 一度の失敗で tasks.loop ごと止まらないようにする
-            ub.output_error(f"日替わり投稿に失敗しました\n{e}")
+        await self._post_daily_all_guilds()
+
+    async def _post_daily_guild(self, guild, now: datetime, catch_up: bool):
+        """1ギルド分の日替わり投稿。設定が無いギルドは何もしない。"""
+        channel_id = guild_settings.channel_id(guild.id, 'DAIRY_CHANNEL_ID')
+        channel = self.bot.get_channel(channel_id) if channel_id else None
+        if channel is None:
+            return
+        last_date = read_last_daily_date(guild.id)
+        if not should_post_daily(last_date, now):
+            return
+        if catch_up and last_date is None and await self.__posted_today(channel, now):
+            # 状態を入れる前の投稿を確認できた場合は二重投稿しない
+            save_last_daily_date(guild.id, now)
+            ub.output_log(f"本日の時報は投稿済みでした: {guild.name}")
+            return
+        if catch_up:
+            ub.output_warning(
+                f"本日の時報が未投稿のようです.時報の投稿を試みます: {guild.name}")
+        await post_daily(
+            self.bot,
+            now.replace(hour=5, minute=0, second=0, microsecond=0),
+            channel_id,
+        )
+        save_last_daily_date(guild.id, now)
+
+    async def _post_daily_all_guilds(self, catch_up: bool = False):
+        now = datetime.now(ZoneInfo("Asia/Tokyo"))
+        for guild in list(self.bot.guilds):
+            try:
+                await self._post_daily_guild(guild, now, catch_up)
+            except Exception as e:
+                # 1ギルドの失敗でループ全体を止めない
+                ub.output_error(
+                    f"日替わり投稿に失敗しました: {guild.name}（{guild.id}）\n{e}")
 
     @commands.Cog.listener()
     async def on_ready(self):
@@ -103,25 +140,8 @@ class Daily(commands.Cog):
             self.daily_bonus.start()
 
         # 時報の投稿済みチェック (5時以降の起動で)
-        dairyChannel = self.bot.get_channel(dairy_channel_id())
-        if dairyChannel is not None:
-            now = datetime.now(ZoneInfo("Asia/Tokyo"))
-            lastDate = read_last_daily_date()
-            if should_post_daily(lastDate, now):
-                if lastDate is None and await self.__posted_today(dairyChannel, now):
-                    # 状態ファイルを入れる前の投稿を確認できた場合は二重投稿しない
-                    save_last_daily_date(now)
-                    ub.output_log("本日の時報は投稿済みでした")
-                else:
-                    ub.output_warning("本日の時報が未投稿のようです.時報の投稿を試みます")
-                    await post_daily(
-                        self.bot,
-                        now.replace(hour=5, minute=0, second=0, microsecond=0),
-                        dairy_channel_id(),
-                    )
-                    save_last_daily_date(now)
-
-            ub.output_log("botが起動しました")
+        await self._post_daily_all_guilds(catch_up=True)
+        ub.output_log("botが起動しました")
 
     async def __posted_today(self, dairyChannel, now: datetime) -> bool:
         """日付入りの投稿が今日ぶんチャンネルにあるか確認する（状態ファイル導入前の互換）。"""

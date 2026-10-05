@@ -26,13 +26,23 @@ def test_should_post_daily_when_already_posted():
     assert daily.should_post_daily("2026/10/04", now) is False
 
 
-def test_last_daily_date_roundtrip(tmp_path, monkeypatch):
-    path = tmp_path / "last_daily.txt"
-    monkeypatch.setattr(daily, "LAST_DAILY_PATH", str(path))
+def test_last_daily_date_roundtrip(monkeypatch):
+    stored = {}
 
-    assert daily.read_last_daily_date() is None
-    daily.save_last_daily_date(datetime(2026, 10, 4, 5, 0, tzinfo=JST))
-    assert daily.read_last_daily_date() == "2026/10/04"
+    def fake_get(guild_id, key):
+        return stored.get((guild_id, key))
+
+    def fake_set(guild_id, key, value):
+        stored[(guild_id, key)] = value
+        return True
+
+    monkeypatch.setattr(daily.save, "get_guild_setting", fake_get)
+    monkeypatch.setattr(daily.save, "set_guild_setting", fake_set)
+
+    assert daily.read_last_daily_date(999) is None
+    daily.save_last_daily_date(999, datetime(2026, 10, 4, 5, 0, tzinfo=JST))
+    assert daily.read_last_daily_date(999) == "2026/10/04"
+    assert daily.read_last_daily_date(111) is None
 
 class FakeResponse:
     def __init__(self):
