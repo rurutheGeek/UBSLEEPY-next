@@ -277,7 +277,7 @@ ubsleepy-debug> give
 - `/role setting:おかねもちロール role:@ロール`: IDくじで1位になった人に付くロール
 - `config.json` の `GUILD_DICT` は既定値（未設定は0）。手で書き換えなくてもDiscordから設定できます
 
-## Dockerで動かす
+## Dockerで動かす（ローカル）
 
 ```bash
 echo 'DISCORD_TOKEN=...' > .env
@@ -287,3 +287,28 @@ docker compose logs -f
 
 - `save/`・`log/`・`config.json`・`resource/pokemon_senryu.csv`・`resource/image/` はホストにマウントして永続化します
 - イメージは `setup/Dockerfile` から作ります（`docker compose` が参照）
+
+## サーバーで動かす（イメージ固定）
+
+本番・テストは apps-01 で、GitHub Actions が main のマージ時にビルドした
+イメージ（GHCR）を **digest固定** で動かします。ホスト上ではビルドしません。
+
+- スタック: `compose.yaml` + `compose.lock.yaml`（digest固定）+ `manage.py`
+- 状態: `STORAGE_ROOT/state` をマウント（`save` / `log` / `config.json` / `resource`）
+- 秘密: `secrets/` に `discord_token`・`pkdb_password`・`ubsleepy_db_password`
+- `.env`: `STORAGE_ROOT` と `UBSLEEPY_TEST`（テスト配備は `true` で debug モード + `ubsleepy_test` DB）
+
+```bash
+cd /opt/ubsleepy               # 本番（テスト配備は /opt/ubsleepy-next）
+sudo python3 manage.py init    # 初回: .env と state ディレクトリの用意
+sudo python3 manage.py up      # イメージを取得して起動
+sudo python3 manage.py status
+sudo python3 manage.py backup --destination /srv/ubsleepy/backups --keep 14
+sudo python3 manage.py down
+```
+
+- 環境変数（コンテナへ渡す）: `DISCORD_TOKEN`・`PKDB_PASSWORD`・`UBSLEEPY_DB_PASSWORD`・`UBSLEEPY_DB_NAME`（既定 `ubsleepy`）
+- **更新**: `compose.lock.yaml` の digest を新しいビルドへ書き換えて `manage.py up`
+  - スタックの正本は shake-cloud の `stacks/ubsleepy`（本番）/ `stacks/ubsleepy-next`（テスト）
+  - Ansible: `platform/ansible/ubsleepy.yml`（本番）/ `ubsleepy-next.yml`（テスト）
+  - 手順の詳細: <https://github.com/rurutheGeek/shake-cloud/blob/main/docs/operations/ubsleepy.md>
