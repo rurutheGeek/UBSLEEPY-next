@@ -7,6 +7,42 @@
 
 ---
 
+## 旧バージョン（UBSLEEPY）との違い
+
+2026年の大改修で、構成・データ・運用が次のように変わりました。
+
+### 構成
+- **認証（学籍番号・ロール付与）と通話通知は認証Bot「CIRCLEAUTH」へ分離**。このBotは汎用のポケモン機能だけを持ちます
+- Cog分割・型つき設定・テスト＋CI・ログの整理
+- 配備はGitHub Actionsがビルドしたイメージ（GHCR）をdigest固定で使います
+
+### 多サーバー対応
+- コマンドは**グローバル登録**。クラブのサーバーにはギルドコマンドのコピーも配るので**再起動で即時反映**されます
+- サーバーごとの設定は**DB**（`/channel`：クイズ・日替わり・ログ、`/role`：おかねもちロール）。`config.json` は既定値だけ
+- 日替わり投稿はBotが居る**全サーバー**を回ります（設定済みのサーバーだけ）
+- サーバーに追加されたときは案内を投稿します
+- intentsを最小化（guilds / members / guild_messages / message_content）
+
+### データ
+- セーブデータ（おこづかい・クジびきけん・クイズ戦績）は**PostgreSQL（ubsleepy DB）**へ。旧CSVは `python -m bot_module.save save/report.csv` で取り込めます
+- セーブデータは**全サーバー共通**（どのサーバーで使っても同じ残高・戦績）
+- 図鑑データは**pkdb（PostgreSQL）**から取得（未設定ならCSV）
+- ランキングはSQL（索引＋「自分より大きい値の数+1」で順位）
+
+### コマンド
+- `/help` を追加（引数なしで一覧、コマンド名で詳細。サジェスト付き）
+- クイズは `/q`（種別を選択。旧 `/bq` 相当）・`/quizrate`・`/bmode`
+- `/search` を追加（タイプ・種族値などの条件検索。未記入でGUI）
+- `/channel` はDB保存に（旧: config.json 書き換え）。`/role` を追加
+- 旧 `/wish`（フィードバック）は廃止。問い合わせは [GitHub Issues](https://github.com/rurutheGeek/UBSLEEPY-next/issues) へ
+- ステージチャンネルなどクラブ固有の機能は削除/認証Bot側へ
+
+### 運用
+- 日次バックアップ（state の tar）とDBバックアップ（pg_dump）
+- プライバシーポリシー・利用規約は GitHub Pages で公開: <https://ruruthegeek.github.io/UBSLEEPY-next/>
+
+---
+
 ## セットアップ手順
 
 このプログラムを実行するには, Pythonをインストールする必要があります. 
@@ -231,13 +267,15 @@ ubsleepy-debug> give
 
 ---
 
-## 投稿先チャンネル（/channel）
+## 投稿先チャンネル・ロール（/channel /role）
 
-管理者がDiscordから変更できます。変更は `config.json` に保存され、再起動後も残ります。
+サーバー管理権限を持つ人がDiscordから変更できます。設定はDBに保存され、再起動後も残ります。
 
 - `/channel`（引数なし）: 現在の設定を表示
 - `/channel setting:クイズ（回答の受付） channel:#クイズ` のように変更
 - 設定できるもの: クイズ（回答の受付）・日替わり投稿・ログ（警告以上）
+- `/role setting:おかねもちロール role:@ロール`: IDくじで1位になった人に付くロール
+- `config.json` の `GUILD_DICT` は既定値（未設定は0）。手で書き換えなくてもDiscordから設定できます
 
 ## Dockerで動かす
 
