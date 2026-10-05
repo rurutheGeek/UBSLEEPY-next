@@ -28,6 +28,7 @@ EXPECTED_COMMANDS = {
     "search",
     "pocketmoney",
     "channel",
+    "role",
     "help",
 }
 

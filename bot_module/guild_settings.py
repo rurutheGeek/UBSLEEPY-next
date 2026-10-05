@@ -2,15 +2,15 @@
 # guild_settings.py
 """ギルドごとの設定の解決。
 
-優先順位は DB（/channel で保存した値）→ config.json の既定値 → 0。
+優先順位は DB（/channel・/role で保存した値）→ config.json の既定値 → 0。
 config.json は「既定値＋開発用」として残す。
 """
 import bot_module.config as cfg
 from bot_module import config_file, save
 
 
-def channel_id(guild_id, key: str) -> int:
-    """ギルドの投稿先チャンネルID。未設定は0。"""
+def setting(guild_id, key: str) -> int:
+    """ギルド設定（チャンネルID・ロールIDなど）。未設定は0。"""
     stored = save.get_guild_setting(guild_id, key)
     if stored is not None:
         return stored
@@ -20,7 +20,7 @@ def channel_id(guild_id, key: str) -> int:
     return getattr(guild, key.lower(), 0)
 
 
-def set_channel(guild_id, key: str, value: int) -> str:
+def set_setting(guild_id, key: str, value: int) -> str:
     """保存して保存先を返す: 'db' / 'config'（DB未設定の手元） / 'failed'。"""
     try:
         if save.set_guild_setting(guild_id, key, value):

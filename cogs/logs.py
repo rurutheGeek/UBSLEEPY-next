@@ -30,7 +30,7 @@ class LogRelay(commands.Cog):
             return
         try:
             channel = self.bot.get_channel(
-                guild_settings.channel_id(cfg.ACTIVE_GUILD_ID, 'LOG_CHANNEL_ID'))
+                guild_settings.setting(cfg.ACTIVE_GUILD_ID, 'LOG_CHANNEL_ID'))
             if channel is None:
                 # チャンネルがまだ見えないときは次回に回す
                 self.handler.requeue(lines)

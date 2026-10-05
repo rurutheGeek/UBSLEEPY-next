@@ -101,7 +101,7 @@ class Daily(commands.Cog):
 
     async def _post_daily_guild(self, guild, now: datetime, catch_up: bool):
         """1ギルド分の日替わり投稿。設定が無いギルドは何もしない。"""
-        channel_id = guild_settings.channel_id(guild.id, 'DAIRY_CHANNEL_ID')
+        channel_id = guild_settings.setting(guild.id, 'DAIRY_CHANNEL_ID')
         channel = self.bot.get_channel(channel_id) if channel_id else None
         if channel is None:
             return
@@ -264,7 +264,9 @@ class Daily(commands.Cog):
                     if pocketMoney == ub.top_value(
                             interaction.guild.id, "おこづかい"):
                         dialogText = f"ロロ{cfg.EXCLAMATION_ICON}{interaction.guild.name}で いちばんの おかねもち だロト{cfg.EXCLAMATION_ICON}\n"
-                        menymoneyRole = interaction.user.guild.get_role(cfg.MENYMONEY_ROLE_ID)
+                        menymoneyRole = interaction.user.guild.get_role(
+                            guild_settings.setting(
+                                interaction.guild.id, 'MENYMONEY_ROLE_ID'))
                         if menymoneyRole is None:
                             ub.output_log("おかねもちロールが未設定です")
                         else:

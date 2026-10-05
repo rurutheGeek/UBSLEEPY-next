@@ -219,7 +219,7 @@ class Quiz(commands.Cog):
 
         #チャンネルのidがギルドのクイズチャンネルの場合
         elif (message.guild is not None
-              and message.channel.id == guild_settings.channel_id(
+              and message.channel.id == guild_settings.setting(
                   message.guild.id, 'QUIZ_CHANNEL_ID')):
             #メッセージの内容がポケモン名であるか判定
             if ub.fetch_pokemon(message.content) is not None:

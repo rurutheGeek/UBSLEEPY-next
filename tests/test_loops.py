@@ -40,7 +40,7 @@ def test_daily_bonus_survives_exception(monkeypatch, caplog):
         lambda guild_id, day: saved.append((guild_id, day)))
     monkeypatch.setattr(daily, "should_post_daily", lambda last, now: True)
     monkeypatch.setattr(
-        daily.guild_settings, "channel_id", lambda guild_id, key: 123)
+        daily.guild_settings, "setting", lambda guild_id, key: 123)
 
     cog = daily.Daily(bot=DailyFakeBot())
     with caplog.at_level(logging.ERROR, logger="ubsleepy"):
