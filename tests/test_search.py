@@ -66,8 +66,8 @@ PIKACHU = _pokemon(
 def test_parse_categories_and_unknown():
     query = SearchQuery.parse(["ほのお", "ふゆう", "カントー", "8", "最終進化", "ほげ"])
 
-    assert query.types == ["ほのお"]
-    assert query.abilities == ["ふゆう"]
+    assert query.types_any == ["ほのお"]
+    assert query.abilities_any == ["ふゆう"]
     assert query.regions == ["カントー"]
     assert query.generations == [8]
     assert query.stages == ["最終進化"]
@@ -79,9 +79,9 @@ def test_parse_expression_and_words_round_trip():
     query = SearchQuery.parse(["みず", "A>=100", "合計<600"])
 
     assert query.to_words() == ["みず", "A>=100", "合計<600"]
-    assert SearchQuery.parse(query.to_words()).types == ["みず"]
+    assert SearchQuery.parse(query.to_words()).types_any == ["みず"]
     labels = dict(query.describe())
-    assert labels["タイプ"] == "みず"
+    assert labels["タイプ（どれか）"] == "みず"
     assert "A>=100" in labels["種族値"]
 
 
@@ -228,7 +228,7 @@ def test_type_select_updates_panel_query():
 
     interaction = asyncio.run(run())
     embed = interaction.response.edits[0]["embed"]
-    assert search_cog._words_from_embed(embed) == ["みず", "でんき"]
+    assert search_cog._words_from_embed(embed) == ["みず&でんき"]
 
 
 def test_run_button_requires_conditions():
@@ -269,3 +269,61 @@ def test_page_button_moves_page():
     interaction = asyncio.run(run())
     embed = interaction.response.edits[0]["embed"]
     assert "(ページ 2/" in embed.title
+
+
+PIDGEOT = _pokemon(
+    ndex_number="0018",
+    species="18",
+    name="ピジョット",
+    species_name="ピジョット",
+    type_1="ノーマル",
+    type_2="ひこう",
+    ability_1="するどいめ",
+    ability_2=None,
+    ability_h="はとむね",
+    hp=83,
+    atk=80,
+    dfn=75,
+    spa=70,
+    spd=70,
+    spe=101,
+    display_number="18",
+)
+
+
+def test_ampersand_requires_all():
+    records = [PIDGEOT, PIKACHU]
+
+    assert SearchQuery.parse(["ノーマル&ひこう"]).apply(records) == [PIDGEOT]
+    assert SearchQuery.parse(["ノーマル&でんき"]).apply(records) == []
+    assert SearchQuery.parse(["するどいめ&はとむね"]).apply(records) == [PIDGEOT]
+    assert SearchQuery.parse(["するどいめ&せいでんき"]).apply(records) == []
+
+
+def test_space_and_pipe_are_any():
+    records = [PIDGEOT, PIKACHU]
+
+    assert SearchQuery.parse(["ノーマル", "でんき"]).apply(records) == records
+    assert SearchQuery.parse(["ノーマル|ひこう"]).apply(records) == [PIDGEOT]
+    assert SearchQuery.parse(["せいでんき|はとむね"]).apply(records) == records
+
+
+def test_and_condition_round_trips_through_words():
+    query = SearchQuery.parse(["ノーマル&ひこう"])
+    assert query.types == ["ノーマル", "ひこう"]
+    assert SearchQuery.parse(query.to_words()).types == ["ノーマル", "ひこう"]
+
+
+def test_single_valued_fields_stay_or():
+    eevee = _pokemon(region="ジョウト", display_number="133")
+    records = [PIDGEOT, eevee]
+
+    assert SearchQuery.parse(["カントー", "ジョウト"]).apply(records) == records
+    assert SearchQuery.parse(["ジョウト"]).apply(records) == [eevee]
+
+
+def test_panel_mentions_multiple_types_are_and():
+    embed = search_cog.build_panel_embed(SearchQuery())
+
+    help_field = next(field for field in embed.fields if field.name == "使い方")
+    assert "両方を持つ" in help_field.value
