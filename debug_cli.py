@@ -8,6 +8,7 @@
     python debug_cli.py dex リザードン
     python debug_cli.py search みず 合計<400
     python debug_cli.py                # 対話モード（q → answer / hint / give も可）
+    python debug_cli.py --stdin < commands.txt   # 複数コマンドを1プロセスで
 
 既定ではセーブの増減を書き込まず、表示だけする（読み取りは本物の保存先を見る。
 --save で増減も実際に保存先へ書く）。図鑑とセーブの接続先は環境変数（PKDB_PASSWORD・
@@ -490,9 +491,21 @@ class Harness:
     async def cmd_help(self, args):
         print(HELP)
 
-    async def repl(self):
+    async def run_lines(self, lines):
+        for line in lines:
+            argv = shlex.split(line)
+            if not argv:
+                continue
+            if argv[0] in ("quit", "exit"):
+                break
+            await self.dispatch(argv)
+
+    def banner(self):
         pokedex_source, save_source, count = self.sources()
         print(f"図鑑: {pokedex_source} ({count}件) / セーブ: {save_source}")
+
+    async def repl(self):
+        self.banner()
         print("help でコマンド一覧。quit で終了。")
         loop = asyncio.get_running_loop()
         while True:
@@ -500,12 +513,12 @@ class Harness:
                 line = await loop.run_in_executor(None, input, "ubsleepy-debug> ")
             except EOFError:
                 break
-            argv = shlex.split(line)
-            if not argv:
-                continue
-            if argv[0] in ("quit", "exit"):
-                break
-            await self.dispatch(argv)
+            await self.run_lines([line])
+
+    async def run_stdin(self):
+        """標準入力からコマンドを順に実行する（ポータルなどから使う）。"""
+        self.banner()
+        await self.run_lines(sys.stdin.read().splitlines())
 
 
 HELP = """コマンド一覧:
@@ -531,13 +544,16 @@ def main():
     argv = sys.argv[1:]
     debug = "--debug" in argv
     save = "--save" in argv
-    argv = [a for a in argv if a not in ("--debug", "--save")]
+    stdin_mode = "--stdin" in argv
+    argv = [a for a in argv if a not in ("--debug", "--save", "--stdin")]
     if debug:
         # bot_module.config は sys.argv を見て debug を決める
         sys.argv = [sys.argv[0], "debug"] + argv
 
     harness = Harness(save=save)
-    if argv:
+    if stdin_mode:
+        asyncio.run(harness.run_stdin())
+    elif argv:
         asyncio.run(harness.dispatch(argv))
     else:
         asyncio.run(harness.repl())
