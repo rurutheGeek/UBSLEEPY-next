@@ -53,6 +53,15 @@
 - 監視: ギルド数・コマンドエラー・DB接続。shardingは必要になったら
 - 公開Bot用の専用インスタンスを既存 compose / manage.py で運用
 
+## 進捗（2026/10/05）
+- [x] Phase 1: 設定のDB化（`guild_setting`）、`/channel`のDB保存、コマンドのグローバル化、`on_guild_join`、サーバー管理権限
+- [x] Phase 2: `save_user`/`save_value` の guild_id 分離（旧DBは初回接続で自動移行）、DBランキング
+- [x] Phase 3: 日替わり投稿のギルド横断化、投稿済み管理のギルドごと化
+- [x] ロール設定のギルド対応（`/role` で「おかねもちロール」を設定）
+- [x] Phase 4（コード側）: intents最小化、未使用埋め込みの削除、プライバシーポリシー・利用規約の下書き
+- [ ] Phase 4（ポータル側）: Botプロフィール・招待URL・規約の公開URL・Bot認証申請
+- [ ] 本番切替（UBSLEEPY-nextを本番へ）
+
 ## 進め方（小さく）
 1. 設定のDB化と `/channel` のDB保存（config.json書き換え廃止）
 2. `save_user` / `save_value` への guild_id 追加と移行
