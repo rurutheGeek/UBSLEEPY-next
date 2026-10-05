@@ -46,9 +46,16 @@ class UBSleepy(commands.Bot):
     """UBSLEEPY本体。"""
 
     def __init__(self):
+        # 必要なintentだけ要求する。
+        # members / message_content は特権intentなので、Developer Portalで有効にする。
+        intents = discord.Intents.none()
+        intents.guilds = True
+        intents.members = True
+        intents.guild_messages = True
+        intents.message_content = True
         super().__init__(
             command_prefix=commands.when_mentioned,
-            intents=discord.Intents.all(),
+            intents=intents,
             activity=discord.Activity(name="研修チュウ", type=discord.ActivityType.unknown),
         )
         self._commands_synced = False
