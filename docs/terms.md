@@ -1,3 +1,8 @@
+---
+layout: default
+title: 利用規約
+---
+
 # 利用規約（UBSLEEPY）
 
 最終更新: 2026/10/05
