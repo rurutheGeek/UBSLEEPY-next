@@ -32,6 +32,13 @@ CREATE TABLE IF NOT EXISTS save_value (
     value BIGINT NOT NULL DEFAULT 0,
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     PRIMARY KEY (user_id, save_key)
+);
+CREATE TABLE IF NOT EXISTS guild_setting (
+    guild_id BIGINT NOT NULL,
+    setting_key TEXT NOT NULL,
+    value BIGINT NOT NULL,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (guild_id, setting_key)
 )
 """
 
@@ -103,6 +110,24 @@ class PostgresSaveStore:
                 (user_id, key, initial_value(key) + delta, delta),
             ).fetchone()
         return int(row[0])
+
+    def get_guild_setting(self, guild_id: int, key: str) -> int | None:
+        """ギルド設定を読む。未設定ならNone。"""
+        row = self._connection_or_connect().execute(
+            "SELECT value FROM guild_setting "
+            "WHERE guild_id = %s AND setting_key = %s",
+            (guild_id, key),
+        ).fetchone()
+        return int(row[0]) if row else None
+
+    def set_guild_setting(self, guild_id: int, key: str, value: int) -> None:
+        self._connection_or_connect().execute(
+            "INSERT INTO guild_setting (guild_id, setting_key, value) "
+            "VALUES (%s, %s, %s) "
+            "ON CONFLICT (guild_id, setting_key) DO UPDATE "
+            "SET value = EXCLUDED.value, updated_at = now()",
+            (guild_id, key, value),
+        )
 
     def close(self) -> None:
         if self._connection is not None:
@@ -193,6 +218,33 @@ def reset_store() -> None:
     if _STORE is not None:
         _STORE.close()
     _STORE = None
+
+
+def get_guild_setting(guild_id, key: str) -> int | None:
+    """ギルド設定をDBから読む。DB未設定・失敗時はNone（既定値を使う）。"""
+    store = get_store()
+    if store is None:
+        return None
+    try:
+        return store.get_guild_setting(int(guild_id), key)
+    except Exception as error:
+        logger.error(f"ギルド設定の読み込みに失敗しました\n{error}")
+        reset_store()
+        return None
+
+
+def set_guild_setting(guild_id, key: str, value: int) -> bool:
+    """ギルド設定をDBへ保存する。DB未設定ならFalse、失敗時はSaveError。"""
+    store = get_store()
+    if store is None:
+        return False
+    try:
+        store.set_guild_setting(int(guild_id), key, int(value))
+        return True
+    except Exception as error:
+        logger.error(f"ギルド設定の保存に失敗しました\n{error}")
+        reset_store()
+        raise SaveError("ギルド設定の保存に失敗しました") from error
 
 
 def report(

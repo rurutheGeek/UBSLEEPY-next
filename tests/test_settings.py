@@ -31,6 +31,13 @@ def test_production_guild_is_selected():
     assert settings.guild.dairy_channel_id == PROD_DAIRY
 
 
+def test_guilds_are_exposed():
+    settings = load_settings(config_path=DEFAULT, debug=False)
+    assert settings.guild_id == str(PROD_GUILD)
+    assert settings.guilds[str(PROD_GUILD)].quiz_channel_id == PROD_QUIZ
+    assert settings.guilds[str(DEV_GUILD)].quiz_channel_id == DEV_QUIZ
+
+
 def test_debug_uses_developer_guild():
     settings = load_settings(config_path=DEFAULT, debug=True)
     assert settings.guild.quiz_channel_id == DEV_QUIZ

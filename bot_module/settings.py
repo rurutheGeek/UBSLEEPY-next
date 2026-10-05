@@ -70,7 +70,9 @@ class PathSettings:
 class Settings:
     debug_mode: bool
     ids: GuildIds
+    guild_id: str
     guild: GuildSettings
+    guilds: dict[str, GuildSettings]
     emoji: EmojiSettings
     ex_source_link: str
     paths: PathSettings
@@ -114,7 +116,28 @@ def load_settings(
         raise SettingsError(f"{path} の DEVELOP_ID_DICT に GUILD_IDS がありません")
     guild_id = str(_require(develop, "DEVELOPER_GUILD_ID", str(path)) if debug else default_guild_id)
     guild_raw = _require(raw, "GUILD_DICT", str(path))
-    guild = _require(guild_raw, guild_id, f"{path} の GUILD_DICT")
+
+    def build_guild(entry: dict, where: str) -> GuildSettings:
+        return GuildSettings(
+            debug_channel_id=_require(entry, "DEBUG_CHANNEL_ID", where),
+            guideline_channel_id=_require(entry, "GUIDELINE_CHANNEL_ID", where),
+            stage_channel_id=_require(entry, "STAGE_CHANNEL_ID", where),
+            dairy_channel_id=_require(entry, "DAIRY_CHANNEL_ID", where),
+            hello_channel_id=_require(entry, "HELLO_CHANNEL_ID", where),
+            quiz_channel_id=_require(entry, "QUIZ_CHANNEL_ID", where),
+            reactionrole_channel_id=_require(entry, "REACTIONROLE_CHANNEL_ID", where),
+            callstatus_channel_id=_require(entry, "CALLSTATUS_CHANNEL_ID", where),
+            log_channel_id=_require(entry, "LOG_CHANNEL_ID", where),
+            unknown_role_id=_require(entry, "UNKNOWN_ROLE_ID", where),
+            stagehost_role_id=_require(entry, "STAGEHOST_ROLE_ID", where),
+            menymoney_role_id=_require(entry, "MENYMONEY_ROLE_ID", where),
+        )
+
+    guilds = {
+        key: build_guild(entry, f"{path} の GUILD_DICT[{key}]")
+        for key, entry in guild_raw.items()
+    }
+    guild = _require(guilds, guild_id, f"{path} の GUILD_DICT")
     emoji = _require(raw, "EMOJI_ID_DICT", str(path))
     links = _require(raw, "LINK_DICT", str(path))
     paths = _require(raw, "PATH_DICT", str(path))
@@ -128,20 +151,9 @@ def load_settings(
             pdw_server_id=str(_require(develop, "PDW_SERVER_ID", str(path))),
             guild_ids=guild_ids,
         ),
-        guild=GuildSettings(
-            debug_channel_id=_require(guild, "DEBUG_CHANNEL_ID", f"GUILD_DICT[{guild_id}]"),
-            guideline_channel_id=_require(guild, "GUIDELINE_CHANNEL_ID", f"GUILD_DICT[{guild_id}]"),
-            stage_channel_id=_require(guild, "STAGE_CHANNEL_ID", f"GUILD_DICT[{guild_id}]"),
-            dairy_channel_id=_require(guild, "DAIRY_CHANNEL_ID", f"GUILD_DICT[{guild_id}]"),
-            hello_channel_id=_require(guild, "HELLO_CHANNEL_ID", f"GUILD_DICT[{guild_id}]"),
-            quiz_channel_id=_require(guild, "QUIZ_CHANNEL_ID", f"GUILD_DICT[{guild_id}]"),
-            reactionrole_channel_id=_require(guild, "REACTIONROLE_CHANNEL_ID", f"GUILD_DICT[{guild_id}]"),
-            callstatus_channel_id=_require(guild, "CALLSTATUS_CHANNEL_ID", f"GUILD_DICT[{guild_id}]"),
-            log_channel_id=_require(guild, "LOG_CHANNEL_ID", f"GUILD_DICT[{guild_id}]"),
-            unknown_role_id=_require(guild, "UNKNOWN_ROLE_ID", f"GUILD_DICT[{guild_id}]"),
-            stagehost_role_id=_require(guild, "STAGEHOST_ROLE_ID", f"GUILD_DICT[{guild_id}]"),
-            menymoney_role_id=_require(guild, "MENYMONEY_ROLE_ID", f"GUILD_DICT[{guild_id}]"),
-        ),
+        guild_id=guild_id,
+        guild=guild,
+        guilds=guilds,
         emoji=EmojiSettings(
             ball_icon=_require(emoji, "BALL_ICON", str(path)),
             bangbang_icon=_require(emoji, "BANGBANG_ICON", str(path)),
