@@ -23,6 +23,10 @@ DEVELOPER_USER_ID = SETTINGS.ids.developer_user_id
 DEVELOPER_GUILD_ID = SETTINGS.ids.developer_guild_id
 PDW_SERVER_ID = SETTINGS.ids.pdw_server_id
 GUILD_IDS = SETTINGS.ids.guild_ids
+# いまの起動モードで使うギルド（debug=開発用、通常=既定）
+ACTIVE_GUILD_ID = SETTINGS.guild_id
+# 全ギルドの設定（多サーバー対応の既定値解決に使う）
+GUILD_SETTINGS = SETTINGS.guilds
 
 DEBUG_CHANNEL_ID = SETTINGS.guild.debug_channel_id
 GUIDELINE_CHANNEL_ID = SETTINGS.guild.guideline_channel_id

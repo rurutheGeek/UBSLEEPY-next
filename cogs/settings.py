@@ -5,8 +5,8 @@ import discord
 from discord.ext import commands
 
 import bot_module.config as cfg
-import bot_module.config_file as config_file
 import bot_module.func as ub
+import bot_module.guild_settings as guild_settings
 
 GUILDS = [discord.Object(id=guild_id) for guild_id in cfg.GUILD_IDS]
 
@@ -43,7 +43,7 @@ class Settings(commands.Cog):
         if setting is None or channel is None:
             lines = []
             for label, key in CHANNEL_CHOICES:
-                value = getattr(cfg, key, None)
+                value = guild_settings.channel_id(interaction.guild.id, key)
                 lines.append(f"**{label}**: <#{value}>" if value else f"**{label}**: 未設定")
             await interaction.response.send_message(
                 "現在の投稿先:\n" + "\n".join(lines)
@@ -51,9 +51,12 @@ class Settings(commands.Cog):
                 ephemeral=True)
             return
 
-        # config.json を書き換え、実行中の設定にも反映する（再起動後も残る）
-        config_file.update_config("config.json", interaction.guild.id, setting, channel.id)
-        setattr(cfg, setting, channel.id)
+        # ギルド設定として保存する（DB。DBが無い手元では config.json）
+        if guild_settings.set_channel(interaction.guild.id, setting, channel.id) == 'failed':
+            await interaction.response.send_message(
+                "設定を保存できませんでした。時間をおいて試してください",
+                ephemeral=True)
+            return
         ub.output_log(
             f"チャンネル設定を変更しました: {LABELS[setting]} -> #{channel.name}")
         await interaction.response.send_message(

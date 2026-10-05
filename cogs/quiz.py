@@ -13,6 +13,7 @@ import pandas as pd
 
 import bot_module.config as cfg
 import bot_module.func as ub
+import bot_module.guild_settings as guild_settings
 from bot_module.pokedex import get_pokedex
 from bot_module.save import SaveError
 
@@ -212,8 +213,10 @@ class Quiz(commands.Cog):
                 else:
                     ub.output_log("botへのリプライは無視されました")
 
-        #チャンネルのidがQUIZ_CHANNEL_IDの場合
-        elif message.channel.id == cfg.QUIZ_CHANNEL_ID:
+        #チャンネルのidがギルドのクイズチャンネルの場合
+        elif (message.guild is not None
+              and message.channel.id == guild_settings.channel_id(
+                  message.guild.id, 'QUIZ_CHANNEL_ID')):
             #メッセージの内容がポケモン名であるか判定
             if ub.fetch_pokemon(message.content) is not None:
                 #一番新しいクイズの投稿を探し,未回答の場合は

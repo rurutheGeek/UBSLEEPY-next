@@ -4,6 +4,7 @@
 from discord.ext import commands, tasks
 
 import bot_module.config as cfg
+import bot_module.guild_settings as guild_settings
 from bot_module.logging_setup import DiscordLogHandler, logger
 
 
@@ -28,7 +29,8 @@ class LogRelay(commands.Cog):
         if not lines:
             return
         try:
-            channel = self.bot.get_channel(cfg.LOG_CHANNEL_ID)
+            channel = self.bot.get_channel(
+                guild_settings.channel_id(cfg.ACTIVE_GUILD_ID, 'LOG_CHANNEL_ID'))
             if channel is None:
                 # チャンネルがまだ見えないときは次回に回す
                 self.handler.requeue(lines)

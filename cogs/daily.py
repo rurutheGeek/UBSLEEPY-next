@@ -12,7 +12,13 @@ import pandas as pd
 import bot_module.config as cfg
 import bot_module.embed as ub_embed
 import bot_module.func as ub
+import bot_module.guild_settings as guild_settings
 from bot_module.save import SaveError
+
+
+def dairy_channel_id() -> int:
+    """日替わり投稿先チャンネル（DB → 既定値）。"""
+    return guild_settings.channel_id(cfg.ACTIVE_GUILD_ID, 'DAIRY_CHANNEL_ID')
 
 GUILDS = [discord.Object(id=guild_id) for guild_id in cfg.GUILD_IDS]
 
@@ -88,7 +94,7 @@ class Daily(commands.Cog):
     async def daily_bonus(self):
         try:
             now = datetime.now(ZoneInfo("Asia/Tokyo"))
-            await post_daily(self.bot, now, cfg.DAIRY_CHANNEL_ID)
+            await post_daily(self.bot, now, dairy_channel_id())
             save_last_daily_date(now)
         except Exception as e:
             # 一度の失敗で tasks.loop ごと止まらないようにする
@@ -101,7 +107,7 @@ class Daily(commands.Cog):
             self.daily_bonus.start()
 
         # 時報の投稿済みチェック (5時以降の起動で)
-        dairyChannel = self.bot.get_channel(cfg.DAIRY_CHANNEL_ID)
+        dairyChannel = self.bot.get_channel(dairy_channel_id())
         if dairyChannel is not None:
             now = datetime.now(ZoneInfo("Asia/Tokyo"))
             lastDate = read_last_daily_date()
@@ -115,7 +121,7 @@ class Daily(commands.Cog):
                     await post_daily(
                         self.bot,
                         now.replace(hour=5, minute=0, second=0, microsecond=0),
-                        cfg.DAIRY_CHANNEL_ID,
+                        dairy_channel_id(),
                     )
                     save_last_daily_date(now)
 

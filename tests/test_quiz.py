@@ -53,8 +53,9 @@ class FakeUser:
 
 
 class FakeGuild:
-    def __init__(self, guild_id=1):
-        self.id = guild_id
+    def __init__(self, guild_id=None):
+        # 既定は設定にあるギルド。ギルド設定の解決（既定値）を通すため。
+        self.id = int(cfg.ACTIVE_GUILD_ID) if guild_id is None else guild_id
 
 
 class FakeChannel:

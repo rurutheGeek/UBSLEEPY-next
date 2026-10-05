@@ -60,6 +60,25 @@ def test_postgres_store_ticket_starts_at_one():
     assert insert[1] == (123, "クジびきけん", 0, -1)  # 1-1
 
 
+def test_guild_setting_store_upserts():
+    store, connection = _fake_store()
+
+    assert store.get_guild_setting(1, "QUIZ_CHANNEL_ID") is None
+    store.set_guild_setting(1, "QUIZ_CHANNEL_ID", 123)
+    insert = [c for c in connection.calls if "INSERT INTO guild_setting" in c[0]][0]
+    assert insert[1] == (1, "QUIZ_CHANNEL_ID", 123)
+
+
+def test_guild_setting_without_password(monkeypatch):
+    monkeypatch.delenv("UBSLEEPY_DB_PASSWORD", raising=False)
+    save.reset_store()
+    try:
+        assert save.get_guild_setting(1, "QUIZ_CHANNEL_ID") is None
+        assert save.set_guild_setting(1, "QUIZ_CHANNEL_ID", 123) is False
+    finally:
+        save.reset_store()
+
+
 def test_store_is_none_without_password(monkeypatch):
     monkeypatch.delenv("UBSLEEPY_DB_PASSWORD", raising=False)
     save.reset_store()
