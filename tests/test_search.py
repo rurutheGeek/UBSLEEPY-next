@@ -66,8 +66,8 @@ PIKACHU = _pokemon(
 def test_parse_categories_and_unknown():
     query = SearchQuery.parse(["ほのお", "ふゆう", "カントー", "8", "最終進化", "ほげ"])
 
-    assert query.types_any == ["ほのお"]
-    assert query.abilities_any == ["ふゆう"]
+    assert query.types == ["ほのお"]
+    assert query.abilities == ["ふゆう"]
     assert query.regions == ["カントー"]
     assert query.generations == [8]
     assert query.stages == ["最終進化"]
@@ -79,9 +79,9 @@ def test_parse_expression_and_words_round_trip():
     query = SearchQuery.parse(["みず", "A>=100", "合計<600"])
 
     assert query.to_words() == ["みず", "A>=100", "合計<600"]
-    assert SearchQuery.parse(query.to_words()).types_any == ["みず"]
+    assert SearchQuery.parse(query.to_words()).types == ["みず"]
     labels = dict(query.describe())
-    assert labels["タイプ（どれか）"] == "みず"
+    assert labels["タイプ（両方）"] == "みず"
     assert "A>=100" in labels["種族値"]
 
 
@@ -300,12 +300,20 @@ def test_ampersand_requires_all():
     assert SearchQuery.parse(["するどいめ&せいでんき"]).apply(records) == []
 
 
-def test_space_and_pipe_are_any():
+def test_space_is_and_and_pipe_is_any():
     records = [PIDGEOT, PIKACHU]
 
-    assert SearchQuery.parse(["ノーマル", "でんき"]).apply(records) == records
+    assert SearchQuery.parse(["ノーマル", "ひこう"]).apply(records) == [PIDGEOT]
+    assert SearchQuery.parse(["ノーマル", "でんき"]).apply(records) == []
     assert SearchQuery.parse(["ノーマル|ひこう"]).apply(records) == [PIDGEOT]
+    assert SearchQuery.parse(["ノーマル|でんき"]).apply(records) == records
     assert SearchQuery.parse(["せいでんき|はとむね"]).apply(records) == records
+
+
+def test_or_condition_round_trips_through_words():
+    query = SearchQuery.parse(["ノーマル|ひこう"])
+    assert query.types_any == ["ノーマル", "ひこう"]
+    assert SearchQuery.parse(query.to_words()).types_any == ["ノーマル", "ひこう"]
 
 
 def test_and_condition_round_trips_through_words():
