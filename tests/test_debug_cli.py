@@ -85,3 +85,31 @@ def test_bqdata_reset(harness, capsys):
     out = capsys.readouterr().out
     assert "種族値クイズの出題条件" in out
     assert "最終進化" in out
+
+
+def test_stdin_mode_runs_commands_in_one_process(harness, capsys, monkeypatch):
+    import io
+    import sys
+
+    monkeypatch.setattr(
+        sys, "stdin", io.StringIO("dex リザードン\nsearch みず 合計<400\n")
+    )
+
+    asyncio.run(harness.run_stdin())
+
+    out = capsys.readouterr().out
+    assert "リザードンの図鑑データ" in out
+    assert "検索結果" in out
+
+
+def test_stdin_mode_keeps_quiz_state(harness, capsys, monkeypatch):
+    import io
+    import sys
+
+    monkeypatch.setattr(sys, "stdin", io.StringIO("q bq\nhint ヒント\ngive\n"))
+
+    asyncio.run(harness.run_stdin())
+
+    out = capsys.readouterr().out
+    assert "出題: 種族値クイズ" in out
+    assert "答えは" in out
