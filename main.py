@@ -29,7 +29,6 @@ COGS = [
     "cogs.daily",
     "cogs.settings",
     "cogs.logs",
-    "cogs.admin",
 ]
 
 
