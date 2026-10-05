@@ -224,3 +224,24 @@ def test_reset_value_csv_sets_all(tmp_path):
     save.reset_value_csv(path, "クジびきけん", 1)
     frame = pd.read_csv(path, dtype={"ユーザーID": str})
     assert list(frame["クジびきけん"]) == [1, 1]
+
+
+def test_store_rank_counts_higher_values():
+    class RankConnection(FakeConnection):
+        def execute(self, sql, params=None):
+            self.calls.append((sql, params))
+            if "information_schema" in sql:
+                return FakeResult((1,))
+            if "SELECT value FROM save_value" in sql:
+                return FakeResult((100,))
+            if "count(*)" in sql:
+                return FakeResult((2,))
+            return FakeResult(None)
+
+    connection = RankConnection()
+    store = save.PostgresSaveStore(
+        {"password": "dummy"}, connect=lambda **kw: connection)
+
+    assert store.rank(555, 123, "おこづかい") == 3
+    count_sql, params = [c for c in connection.calls if "count(*)" in c[0]][0]
+    assert params == (555, "おこづかい", 100)

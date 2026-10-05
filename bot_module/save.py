@@ -38,6 +38,9 @@ CREATE TABLE IF NOT EXISTS save_value (
     CONSTRAINT save_value_user_fkey FOREIGN KEY (guild_id, user_id)
         REFERENCES save_user (guild_id, user_id) ON DELETE CASCADE
 );
+-- ランキング・順位をギルド内で値順に引くための索引
+CREATE INDEX IF NOT EXISTS save_value_rank_idx
+    ON save_value (guild_id, save_key, value DESC);
 CREATE TABLE IF NOT EXISTS guild_setting (
     guild_id BIGINT NOT NULL,
     setting_key TEXT NOT NULL,
@@ -169,15 +172,25 @@ class PostgresSaveStore:
                 for user_id, value, rank in rows]
 
     def rank(self, guild_id: int, user_id: int, key: str) -> int:
-        """ユーザーの順位。記録が無ければ0。"""
-        row = self._connection_or_connect().execute(
-            "SELECT rank FROM ("
-            "  SELECT user_id, RANK() OVER (ORDER BY value DESC) AS rank "
-            "  FROM save_value WHERE guild_id = %s AND save_key = %s"
-            ") ranked WHERE user_id = %s",
-            (guild_id, key, user_id),
+        """ユーザーの順位。記録が無ければ0。同値は同順位。
+
+        全件のランク付けをせず「自分より大きい値の数+1」で求める。
+        """
+        connection = self._connection_or_connect()
+        row = connection.execute(
+            "SELECT value FROM save_value "
+            "WHERE guild_id = %s AND user_id = %s AND save_key = %s",
+            (guild_id, user_id, key),
         ).fetchone()
-        return int(row[0]) if row else 0
+        if row is None:
+            return 0
+        value = int(row[0])
+        row = connection.execute(
+            "SELECT count(*) FROM save_value "
+            "WHERE guild_id = %s AND save_key = %s AND value > %s",
+            (guild_id, key, value),
+        ).fetchone()
+        return int(row[0]) + 1
 
     def top_value(self, guild_id: int, key: str) -> int:
         """いちばん高い値。記録が無ければ0。"""
