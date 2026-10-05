@@ -11,7 +11,9 @@ def harness(monkeypatch, tmp_path):
     import bot_module.config as cfg
     import bot_module.func as ub
 
-    monkeypatch.setattr(cfg, "REPORT_PATH", str(tmp_path / "report.csv"))
+    report_path = str(tmp_path / "report.csv")
+    monkeypatch.setattr(cfg, "REPORT_PATH", report_path)
+    monkeypatch.setattr(ub, "REPORT_PATH", report_path)
     monkeypatch.setattr(ub, "BSS_GRAPH_PATH", str(tmp_path / "graph.png"))
 
     from debug_cli import Harness
