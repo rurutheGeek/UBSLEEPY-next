@@ -78,6 +78,7 @@ class FakeChannel:
 
     async def send(self, *args, **kwargs):
         self.sent.append((args, kwargs))
+        return FakeMessage(author=None, channel=self)
 
 
 class FakeReference:
@@ -238,6 +239,65 @@ class FakePokedex:
 
     def random(self, filter_dict):
         return self.random_result
+
+
+def _cry_project(tmp_path, kinds):
+    cry_dir = tmp_path / 'cry'
+    for kind in kinds:
+        (cry_dir / kind).mkdir(parents=True)
+        (cry_dir / kind / '0006.ogg').write_bytes(b'ogg')
+    return cry_dir
+
+
+def test_cry_quiz_posts_the_cry_and_remembers_the_answer(monkeypatch, tmp_path):
+    cry_dir = _cry_project(tmp_path, ('latest',))
+    monkeypatch.setattr(session_module, 'CRY_DIRECTORY', cry_dir)
+
+    class FakePokedex:
+        records = [_pokemon()]
+
+    monkeypatch.setattr(session_module, 'get_pokedex', lambda: FakePokedex())
+
+    channel = FakeChannel()
+    state = quiz_module.QuizState()
+    session = quiz_module.QuizSession(FakeBot(), 'cryq', state)
+    asyncio.run(session.post(channel))
+
+    assert len(channel.sent) == 1
+    _, kwargs = channel.sent[0]
+    assert kwargs['file'].filename == 'cry.ogg'  # 答えが割れないファイル名
+    assert state.cry_answers == {999: ('リザードン', 'latest')}
+
+
+def test_cry_quiz_uses_the_old_cry_when_only_legacy_exists(monkeypatch, tmp_path):
+    cry_dir = _cry_project(tmp_path, ('legacy',))
+    monkeypatch.setattr(session_module, 'CRY_DIRECTORY', cry_dir)
+
+    class FakePokedex:
+        records = [_pokemon()]
+
+    monkeypatch.setattr(session_module, 'get_pokedex', lambda: FakePokedex())
+
+    state = quiz_module.QuizState()
+    session = quiz_module.QuizSession(FakeBot(), 'cryq', state)
+    asyncio.run(session.post(FakeChannel()))
+
+    assert state.cry_answers == {999: ('リザードン', 'legacy')}
+
+
+def test_cry_quiz_resolves_the_answer_from_the_state(monkeypatch):
+    class FakePokedex:
+        records = [_pokemon()]
+
+    monkeypatch.setattr(session_module, 'get_pokedex', lambda: FakePokedex())
+
+    q = _quiz('cryq')
+    q.examText = 'リザードン'
+
+    answers, aData = q._QuizSession__answers()
+
+    assert answers == ['リザードン']
+    assert aData.name == 'リザードン'
 
 
 def test_bq_post_reports_no_matching_pokemon(monkeypatch):

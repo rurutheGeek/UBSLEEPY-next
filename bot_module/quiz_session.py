@@ -7,6 +7,7 @@ cogs/quiz.py の Cog が作り、Discordへの送受信はこのクラスが行�
 """
 import copy
 import os
+from pathlib import Path
 import random
 import re
 
@@ -19,6 +20,13 @@ from bot_module import func as ub
 from bot_module.pokedex import get_pokedex
 from bot_module.save import SaveError
 
+# 鳴き声クイズの音源。tools/fetch_cries.py が置き、クイズはローカル参照だけする。
+# latest=あたらしい鳴き声（全種）、legacy=BWまでの古い鳴き声（1〜649）。
+CRY_DIRECTORY = Path("resource/cry")
+CRY_KINDS = ("latest", "legacy")
+CRY_LABELS = {"latest": "あたらしいなきごえ", "legacy": "BWまでのなきごえ"}
+CRY_FILENAME = "cry.ogg"
+
 
 class QuizState:
     """クイズの実行時状態（Botの再起動でリセットされる）。"""
@@ -27,6 +35,7 @@ class QuizState:
         self.bq_filter_dict = copy.deepcopy(cfg.DEFAULT_FILTER_DICT)  # 現在の出題条件
         self.bakusoku_mode = True  # 連続出題モード
         self.processing = False  # 回答開示処理中フラグ
+        self.cry_answers = {}  # 鳴き声クイズ: 投稿メッセージID -> ポケモン名
 
 
 class QuizSession:
@@ -125,6 +134,20 @@ class QuizSession:
             quizEmbed.title = "中日翻訳クイズ"
             quizEmbed.description = f"{qDatas.cht} -> [?]"
 
+        elif self.quizName == "cryq":
+            picked = self.__random_cry()
+            if picked is None:
+                await sendChannel.send(
+                    "鳴き声がありません。tools/fetch_cries.py を実行してください")
+                return
+            qDatas, cryKind = picked
+            quizEmbed.title = "鳴き声クイズ"
+            quizEmbed.description = "鳴き声を聞いて ポケモン名を答えよう"
+            quizEmbed.set_thumbnail(url=self.__imageLink())  # 正解までDecamark
+            quizFile = discord.File(
+                str(CRY_DIRECTORY / cryKind / f"{qDatas.ndex_number}.ogg"),
+                filename=CRY_FILENAME)  # ファイル名から答えが割れないようにする
+
         else:
             ub.output_warning(f"不明なクイズ識別子(post): {self.quizName}")
             # ここでエラーを送信
@@ -133,6 +156,12 @@ class QuizSession:
         self.qm = await sendChannel.send(
             content=quizContent, file=quizFile, embed=quizEmbed, view=quizView
         )
+
+        if self.quizName == "cryq":
+            # 鳴き声クイズは答えがメッセージに残らないので、ここで覚えておく
+            self.state.cry_answers[self.qm.id] = (qDatas.name, cryKind)
+            for old in list(self.state.cry_answers)[:-50]:
+                self.state.cry_answers.pop(old, None)
 
     async def try_response(self, response):
 
@@ -155,7 +184,7 @@ class QuizSession:
         hints = []
 
         # クイズごとにヒント項目を作成する
-        if self.quizName in ["bq", "ctojq"]:
+        if self.quizName in ["bq", "ctojq", "cryq"]:
             hints = [
                 "ヒント",
                 "タイプ",
@@ -193,6 +222,13 @@ class QuizSession:
             self.examText = self.quizEmbed.description.split(" ")[0]
         elif self.quizName in ["etojq", "jtoeq", "ctojq"]:
             self.examText = re.findall(r"^(.+)\s->", self.quizEmbed.description)[0]
+        elif self.quizName == "cryq":
+            entry = self.state.cry_answers.get(self.qm.id)
+            if entry is None:
+                await self.rm.reply(
+                    "この問題の答えが分からなくなりました。もう一度 /q で出題してください")
+                return
+            self.examText = entry[0]
 
         # ここでクイズの回答を取得する
         self.ansList, self.ansZero = self.__answers()
@@ -216,7 +252,7 @@ class QuizSession:
 
         fixAns = self.ansText
         repPokeData = None
-        if self.quizName in ["bq", "etojq", "ctojq"]:
+        if self.quizName in ["bq", "etojq", "ctojq", "cryq"]:
             if found := ub.fetch_pokemon(self.ansText):
                 repPokeData = found[0]
                 fixAns = repPokeData.name
@@ -245,7 +281,7 @@ class QuizSession:
                 await self.__disclose(False)
 
         if (
-            self.quizName in ["bq", "etojq", "ctojq"] and repPokeData is None
+            self.quizName in ["bq", "etojq", "ctojq", "cryq"] and repPokeData is None
         ):  # 例外処理
             judge = None
             if isinstance(self.rm, discord.Message):
@@ -289,7 +325,7 @@ class QuizSession:
         pokemon = self.ansZero
         hintIndex = None
 
-        if self.quizName in ["bq", "etojq", "ctojq"]:
+        if self.quizName in ["bq", "etojq", "ctojq", "cryq"]:
             if (
                 self.ansText == "ヒント"
             ):  # まだ出ていないヒントからランダムにヒントを出す
@@ -431,6 +467,12 @@ class QuizSession:
 
         if self.quizName == "bq":
             self.quizEmbed.description = f'こたえ: {",".join(self.ansList)}'
+        elif self.quizName == "cryq":
+            entry = self.state.cry_answers.get(self.qm.id) or ('', '')
+            label = CRY_LABELS.get(entry[1], '')
+            self.quizEmbed.description = (
+                f"こたえ: {self.ansList[0]}"
+                + (f"（{label}）" if label else ''))
         elif self.quizName == "acq":
             self.quizEmbed.description = f"{ub.bss_to_text(self.ansZero)}\n"
             if self.ansList[0] == "同値":
@@ -538,6 +580,10 @@ class QuizSession:
             aData = [p for p in pokedex.records if p.cht == self.examText][0]
             answers.append(aData.name)
 
+        elif self.quizName == "cryq":
+            aData = ub.fetch_pokemon(self.examText)[0]
+            answers.append(aData.name)
+
         else:
             ub.output_warning(f"不明なクイズ識別子(answers): {self.quizName}")
             return answers, aData
@@ -554,11 +600,30 @@ class QuizSession:
             return None
         return random.choice(candidates)
 
+    def __random_cry(self):
+        """鳴き声ファイルがある基本形態から (ポケモン, 種類) をランダムに選ぶ。
+
+        あたらしい鳴き声とBWまでの古い鳴き声の両方から、あるものを選ぶ。
+        """
+        candidates = []
+        for pokemon in get_pokedex().records:
+            if pokemon.form_id != "00":
+                continue
+            kinds = [kind for kind in CRY_KINDS
+                     if (CRY_DIRECTORY / kind / f"{pokemon.ndex_number}.ogg").exists()]
+            if kinds:
+                candidates.append((pokemon, kinds))
+        if not candidates:
+            ub.output_error(f"{self.quizName}: 鳴き声のあるポケモンがいません")
+            return None
+        pokemon, kinds = random.choice(candidates)
+        return pokemon, random.choice(kinds)
+
     def __imageLink(self, searchWord=None):
         ub.output_log(f"{self.quizName}: 画像リンク生成を実行")
         link = f"{cfg.EX_SOURCE_LINK}Decamark.png"  # デフォルトは(?)マーク
         if searchWord is not None:
-            if self.quizName in ["bq", "acq", "etojq", "jtoeq", "ctojq"]:
+            if self.quizName in ["bq", "acq", "etojq", "jtoeq", "ctojq", "cryq"]:
                 displayImage = ub.fetch_pokemon(searchWord)
                 if displayImage:  # 回答ポケモンが発見できた場合
                     link = f"{cfg.EX_SOURCE_LINK}art/{displayImage[0].image_number}.png"

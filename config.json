@@ -64,6 +64,7 @@
     "SYSTEM_DICT_DICT": {
         "QUIZNAME_DICT": {
             "種族値クイズ": "bq",
+            "鳴き声クイズ": "cryq",
             "物理特殊クイズ": "acq",
             "英和翻訳クイズ": "etojq",
             "和英翻訳クイズ": "jtoeq",
