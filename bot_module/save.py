@@ -491,12 +491,16 @@ def main() -> None:
 
     parser = argparse.ArgumentParser(description="report.csvをubsleepy DBへ取り込む")
     parser.add_argument("csv", help="取り込むreport.csv")
+    parser.add_argument(
+        "--guild-id", type=int, default=None,
+        help="取り込み先のギルドID（既定: 起動モードのギルド）")
     args = parser.parse_args()
     store = get_store()
     if store is None:
         raise SystemExit("UBSLEEPY_DB_PASSWORD が未設定です")
-    count = import_report_csv(store, args.csv, store.legacy_guild_id)
-    print(f"imported {count} values")
+    guild_id = args.guild_id if args.guild_id is not None else store.legacy_guild_id
+    count = import_report_csv(store, args.csv, guild_id)
+    print(f"imported {count} values (guild {guild_id})")
 
 
 if __name__ == "__main__":
