@@ -174,13 +174,11 @@ def generate_graph(bss: list[int], name=None) -> str:
     return BSS_GRAPH_PATH
 
 
-#レポートしたり参照する関数 ギルドIDとユーザーIDとレポのインデックスを渡す modifiは増減値
-def report(guild_id, userId, repoIndex: str, modifi: int, userName: str) -> int:
+#レポートしたり参照する関数 ユーザーIDとレポのインデックスを渡す modifiは増減値
+def report(userId, repoIndex: str, modifi: int, userName: str) -> int:
   '''レポートを行う
   Parameters:
   ----------
-  guild_id : int
-  ギルドID
   userId : int
   ユーザーID
   repoIndex : str
@@ -195,28 +193,28 @@ def report(guild_id, userId, repoIndex: str, modifi: int, userName: str) -> int:
   int
   レポート後の値
   '''
-  output_log(f"レポートを確認します: {guild_id} {userId} {repoIndex}")
-  return save.report(guild_id, userId, repoIndex, modifi, userName, REPORT_PATH)
+  output_log(f"レポートを確認します: {userId} {repoIndex}")
+  return save.report(userId, repoIndex, modifi, userName, REPORT_PATH)
 
 
-def ranking(guild_id, key: str, limit: int = 5) -> list:
+def ranking(key: str, limit: int = 5) -> list:
   '''値の大きい順の (user_id, value, rank) を返す。'''
-  return save.ranking(guild_id, key, limit, csv_path=REPORT_PATH)
+  return save.ranking(key, limit, csv_path=REPORT_PATH)
 
 
-def rank(guild_id, user_id, key: str) -> int:
+def rank(user_id, key: str) -> int:
   '''ユーザーの順位を返す（記録が無ければ0）。'''
-  return save.rank(guild_id, user_id, key, csv_path=REPORT_PATH)
+  return save.rank(user_id, key, csv_path=REPORT_PATH)
 
 
-def top_value(guild_id, key: str) -> int:
+def top_value(key: str) -> int:
   '''いちばん高い値を返す（記録が無ければ0）。'''
-  return save.top_value(guild_id, key, csv_path=REPORT_PATH)
+  return save.top_value(key, csv_path=REPORT_PATH)
 
 
-def reset_value(guild_id, key: str, value: int) -> None:
-  '''そのギルドの全員の値を同じ値にする。'''
-  return save.reset_value(guild_id, key, value, csv_path=REPORT_PATH)
+def reset_value(key: str, value: int) -> None:
+  '''全員の値を同じ値にする。'''
+  return save.reset_value(key, value, csv_path=REPORT_PATH)
 
 
 #除外検索できるようにしたい 語頭のマイナスを検知,フラグを立てる
