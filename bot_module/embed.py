@@ -1,10 +1,15 @@
 ﻿# -*- coding: utf-8 -*-
+# embed.py
+import copy
 import json
 from datetime import datetime
+from functools import lru_cache
 
 import discord
 
-from .config import *
+from .config import BALL_ICON, EX_SOURCE_LINK
+
+ERROR_EMBEDS_PATH = "document/error_embeds.json"
 
 
 def balance(userName: str, pocketMoney: int,numOfPeople:int,userRank: int,rank_list: list = [], sendTime: datetime = None,authorPath: str="") -> discord.Embed:
@@ -53,18 +58,16 @@ def balance(userName: str, pocketMoney: int,numOfPeople:int,userRank: int,rank_l
     return embed
 
 
+@lru_cache(maxsize=1)
+def _error_template() -> dict:
+    """エラーEmbedの雛形。ファイルは起動中に変わらない前提で一度だけ読む。"""
+    with open(ERROR_EMBEDS_PATH, "r", encoding="utf-8") as template_file:
+        return json.load(template_file)["error_404"]
+
+
 def error_404(name: str) -> discord.Embed:
-    # JSONファイルを読み込みます
-    with open("document/error_embeds.json", "r", encoding="utf-8") as template_file:
-        template_data = json.load(template_file)
-
-    error_data = template_data["error_404"]
-
-    # テンプレート内の変数 {name} を実際の値に置換
+    # 雛形は書き換えないよう複製してから差し込む
+    error_data = copy.deepcopy(_error_template())
     error_data["description"] = error_data["description"].format(name=name)
     error_data["thumbnail"]["url"] = error_data["thumbnail"]["url"].format(EX_SOURCE_LINK=EX_SOURCE_LINK)
-
-    # discord.Embedのfrom_dictメソッドを使用してEmbedを生成
-    embed = discord.Embed.from_dict(error_data)
-
-    return embed
+    return discord.Embed.from_dict(error_data)

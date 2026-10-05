@@ -55,6 +55,9 @@ class FakeResponse:
     async def defer(self, **kwargs):
         self.deferred.append(kwargs)
 
+    def is_done(self):
+        return bool(self.deferred)
+
 
 class FakeFollowup:
     def __init__(self):

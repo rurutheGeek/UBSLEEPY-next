@@ -188,9 +188,10 @@ python main.py
 
 - **`bot_module`**  
   `main.py` や Cog から呼び出す自作モジュール（設定・図鑑検索・Embedなど）を格納します. 
+  クイズのセッション（出題・回答受付・判定・開示）は `quiz_session.py` にあります. 
 
 - **`cogs`**  
-  機能ごとの Cog を格納します（`pokedex` / `quiz` / `daily` / `logs` / `admin`）. `main.py` は起動と読み込みだけを行います. 
+  機能ごとの Cog を格納します（`pokedex` / `quiz` / `search` / `daily` / `settings` / `logs` / `help`）. `main.py` は起動と読み込みだけを行います. 
   認証・通話通知は別リポジトリの認証Bot（CIRCLEAUTH）にあります. 
 
 - **`tests`**  

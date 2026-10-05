@@ -60,7 +60,7 @@ class Settings(commands.Cog):
                 ephemeral=True)
             return
 
-        # ギルド設定として保存する（DB。DBが無い手元では config.json）
+        # ギルド設定としてDBへ保存する
         if guild_settings.set_setting(interaction.guild.id, setting, channel.id) == 'failed':
             await interaction.response.send_message(
                 "設定を保存できませんでした。時間をおいて試してください",
@@ -102,7 +102,7 @@ class Settings(commands.Cog):
                 ephemeral=True)
             return
 
-        # ギルド設定として保存する（DB。DBが無い手元では config.json）
+        # ギルド設定としてDBへ保存する
         if guild_settings.set_setting(interaction.guild.id, setting, role.id) == 'failed':
             await interaction.response.send_message(
                 "設定を保存できませんでした。時間をおいて試してください",
