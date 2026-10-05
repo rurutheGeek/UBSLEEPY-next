@@ -15,6 +15,7 @@ COGS = [
     "cogs.daily",
     "cogs.settings",
     "cogs.logs",
+    "cogs.help",
 ]
 
 EXPECTED_COMMANDS = {
@@ -27,6 +28,7 @@ EXPECTED_COMMANDS = {
     "search",
     "pocketmoney",
     "channel",
+    "help",
 }
 
 

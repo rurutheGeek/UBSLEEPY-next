@@ -174,7 +174,13 @@ class Daily(commands.Cog):
 
         ranking_list = top_users.values.tolist()
 
-        pdwGuild = await self.bot.fetch_guild(cfg.PDW_SERVER_ID, with_counts=True)
+        try:
+            pdwGuild = await self.bot.fetch_guild(
+                cfg.PDW_SERVER_ID, with_counts=True)
+        except discord.NotFound:
+            # 本番ギルドに居ないとき（テストサーバーなど）はいまのサーバーを使う
+            pdwGuild = await self.bot.fetch_guild(
+                interaction.guild_id, with_counts=True)
         attachImage = ub.attachment_file("resource/image/command/mom_johto.png")
         embed = ub_embed.balance(
             userName=interaction.user.name,
