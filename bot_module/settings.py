@@ -12,9 +12,6 @@ import json
 from dataclasses import dataclass
 from pathlib import Path
 
-# デバッグ以外で使うサーバー。config.json の GUILD_DICT のキー。
-DEFAULT_GUILD_ID = "1067125843647791114"
-
 DEFAULT_CONFIG_PATH = "document/default_config.json"
 
 
@@ -110,7 +107,12 @@ def load_settings(
         raw = json.load(file)
 
     develop = _require(raw, "DEVELOP_ID_DICT", str(path))
-    guild_id = str(develop.get("DEVELOPER_GUILD_ID") if debug else DEFAULT_GUILD_ID)
+    guild_ids = list(_require(develop, "GUILD_IDS", str(path)))
+    # デバッグ以外で使うサーバーは設定から読む。無ければ GUILD_IDS の最後を使う。
+    default_guild_id = develop.get("DEFAULT_GUILD_ID") or (guild_ids[-1] if guild_ids else None)
+    if default_guild_id is None:
+        raise SettingsError(f"{path} の DEVELOP_ID_DICT に GUILD_IDS がありません")
+    guild_id = str(_require(develop, "DEVELOPER_GUILD_ID", str(path)) if debug else default_guild_id)
     guild_raw = _require(raw, "GUILD_DICT", str(path))
     guild = _require(guild_raw, guild_id, f"{path} の GUILD_DICT")
     emoji = _require(raw, "EMOJI_ID_DICT", str(path))
@@ -124,7 +126,7 @@ def load_settings(
             developer_user_id=_require(develop, "DEVELOPER_USER_ID", str(path)),
             developer_guild_id=str(_require(develop, "DEVELOPER_GUILD_ID", str(path))),
             pdw_server_id=str(_require(develop, "PDW_SERVER_ID", str(path))),
-            guild_ids=list(_require(develop, "GUILD_IDS", str(path))),
+            guild_ids=guild_ids,
         ),
         guild=GuildSettings(
             debug_channel_id=_require(guild, "DEBUG_CHANNEL_ID", f"GUILD_DICT[{guild_id}]"),
