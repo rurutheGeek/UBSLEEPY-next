@@ -245,3 +245,15 @@ def test_store_rank_counts_higher_values():
     assert store.rank(555, 123, "おこづかい") == 3
     count_sql, params = [c for c in connection.calls if "count(*)" in c[0]][0]
     assert params == (555, "おこづかい", 100)
+
+
+def test_index_is_created_after_migration():
+    store, connection = _fake_store(has_guild_column=False)
+    store.get_guild_setting(1, "QUIZ_CHANNEL_ID")
+    sqls = [call[0] for call in connection.calls]
+    index_at = next(
+        i for i, sql in enumerate(sqls) if "save_value_rank_idx" in sql)
+    fk_add = next(
+        i for i, sql in enumerate(sqls)
+        if "ADD CONSTRAINT save_value_user_fkey" in sql)
+    assert index_at > fk_add

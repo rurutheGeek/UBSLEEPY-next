@@ -38,9 +38,6 @@ CREATE TABLE IF NOT EXISTS save_value (
     CONSTRAINT save_value_user_fkey FOREIGN KEY (guild_id, user_id)
         REFERENCES save_user (guild_id, user_id) ON DELETE CASCADE
 );
--- ランキング・順位をギルド内で値順に引くための索引
-CREATE INDEX IF NOT EXISTS save_value_rank_idx
-    ON save_value (guild_id, save_key, value DESC);
 CREATE TABLE IF NOT EXISTS guild_setting (
     guild_id BIGINT NOT NULL,
     setting_key TEXT NOT NULL,
@@ -48,6 +45,13 @@ CREATE TABLE IF NOT EXISTS guild_setting (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     PRIMARY KEY (guild_id, setting_key)
 )
+"""
+
+# ランキング・順位をギルド内で値順に引くための索引。
+# guild_id 列の移行が終わってから作る（旧スキーマには列が無いため）。
+INDEX_SQL = """
+CREATE INDEX IF NOT EXISTS save_value_rank_idx
+    ON save_value (guild_id, save_key, value DESC)
 """
 
 # 旧スキーマ（guild_idなし）からの移行。既存行は legacy_guild_id のものとする。
@@ -107,6 +111,7 @@ class PostgresSaveStore:
         self._connection = self._connect(**self.config, autocommit=True)
         self._connection.execute(CREATE_SQL)
         self._migrate_guild_columns()
+        self._connection.execute(INDEX_SQL)
         return self._connection
 
     def _has_guild_column(self) -> bool:
