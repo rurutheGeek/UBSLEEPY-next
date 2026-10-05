@@ -62,7 +62,7 @@ def _press_lottery(monkeypatch, calls, draws):
     """メモリ上に引換券とおこづかいを持ち、ボタンを draws 回押した場合を再現する。"""
     balance = {"クジびきけん": 1, "おこづかい": 0}
 
-    def fake_report(guild_id, user_id, index, modifi, user_name):
+    def fake_report(user_id, index, modifi, user_name):
         calls.append(("report", index, modifi))
         balance[index] = balance.get(index, 0) + modifi
         return balance[index]
@@ -72,9 +72,9 @@ def _press_lottery(monkeypatch, calls, draws):
         daily.ub, "attachment_file", lambda path: ("file", "attachment://image.png")
     )
     # ランキング1位を十分大きくして、ロールの付与・剥奪まで進めない
-    monkeypatch.setattr(daily.ub, "top_value", lambda guild_id, key: 10**9)
+    monkeypatch.setattr(daily.ub, "top_value", lambda key: 10**9)
     monkeypatch.setattr(
-        daily.ub, "ranking", lambda guild_id, key, limit=5: [])
+        daily.ub, "ranking", lambda key, limit=5: [])
 
     cog = daily.Daily(bot=None)
     custom_id = f"lotoIdButton:12345:{_today_for_lottery()}"

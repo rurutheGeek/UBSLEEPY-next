@@ -16,10 +16,10 @@
    sudo docker run --rm \
      -e UBSLEEPY_DB_PASSWORD=... \
      -v /srv/ubsleepy/state/save:/app/save \
-     -v /srv/ubsleepy/state/config.json:/app/config.json \
      ghcr.io/ruruthegeek/ubsleepy-next@sha256:... \
-     python -m bot_module.save save/report.csv --guild-id 1067125843647791114
+     python -m bot_module.save save/report.csv
    ```
+   ※セーブデータは全サーバー共通（DBのguild_id列は固定スコープ0）
 4. 新Bot（UBSLEEPY-next）を本番へ配備して起動する
 5. 動作確認: `/pocketmoney`・IDくじ・クイズ戦績をCSVと突き合わせる
 6. 旧Botは再起動しない（戻す場合は手順2のバックアップからリストア）
@@ -28,3 +28,4 @@
 - 新旧のBotを同時に動かさない。移行後は旧コードのSQL（guild_idなし）が失敗する
 - 移行後はDBが正。CSVは更新されない（バックアップとして残す）
 - テスト環境（ubsleepy_test）は別DBなので、本番データと混ざらない
+- セーブデータは全サーバー共通なので、どのサーバーで使っても同じ残高・戦績になる

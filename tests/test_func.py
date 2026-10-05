@@ -98,7 +98,7 @@ def test_report_creates_row_with_given_user_name(tmp_path, monkeypatch):
     )
     monkeypatch.setattr(ub, "REPORT_PATH", str(path))
 
-    value = ub.report(555, 123456789, "おこづかい", 100, "テスト")
+    value = ub.report(123456789, "おこづかい", 100, "テスト")
 
     assert value == 100
     saved = pd.read_csv(path, index_col=0)
@@ -114,5 +114,5 @@ def test_report_updates_existing_row(tmp_path, monkeypatch):
     )
     monkeypatch.setattr(ub, "REPORT_PATH", str(path))
 
-    assert ub.report(555, 123456789, "おこづかい", 25, "テスト") == 75
-    assert ub.report(555, 123456789, "おこづかい", 0, "テスト") == 75
+    assert ub.report(123456789, "おこづかい", 25, "テスト") == 75
+    assert ub.report(123456789, "おこづかい", 0, "テスト") == 75

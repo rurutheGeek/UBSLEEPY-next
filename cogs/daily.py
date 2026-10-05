@@ -80,7 +80,7 @@ async def post_daily(bot, now: datetime, channelid: int):
     dairyView.add_item(lotoButton)
 
     dairyChannel = bot.get_channel(channelid)
-    ub.reset_value(dairyChannel.guild.id, "クジびきけん", 1)
+    ub.reset_value("クジびきけん", 1)
     day = datetime.now(ZoneInfo("Asia/Tokyo"))
     await dairyChannel.send(
         f'日付が変わりました。 {day.strftime("%Y/%m/%d")} ({cfg.WEAK_DICT[str(day.weekday())]})',
@@ -158,19 +158,17 @@ class Daily(commands.Cog):
     @scoped
     @discord.app_commands.describe()
     async def pocketmoney(self, interaction: discord.Interaction):
-        guild_id = interaction.guild.id
         user_id = interaction.user.id
         try:
-            money = ub.report(
-                guild_id, user_id, "おこづかい", 0, interaction.user.name)
+            money = ub.report(user_id, "おこづかい", 0, interaction.user.name)
         except SaveError:
             await interaction.response.send_message(
                 "セーブデータの読み込みに失敗しました。時間をおいて試してください",
                 ephemeral=True,
             )
             return
-        ranking_list = ub.ranking(guild_id, "おこづかい", 5)
-        userRank = ub.rank(guild_id, user_id, "おこづかい")
+        ranking_list = ub.ranking("おこづかい", 5)
+        userRank = ub.rank(user_id, "おこづかい")
 
         try:
             pdwGuild = await self.bot.fetch_guild(
@@ -225,8 +223,7 @@ class Daily(commands.Cog):
                     f"それは 今日のIDくじ じゃないロ{cfg.EXCLAMATION_ICON}", ephemeral=True
                 )
             elif ub.report(
-                interaction.guild.id, interaction.user.id, "クジびきけん", 0,
-                interaction.user.name
+                interaction.user.id, "クジびきけん", 0, interaction.user.name
             ) == 0:
                 # すでにくじを引いている場合
                 await interaction.followup.send(
@@ -235,7 +232,7 @@ class Daily(commands.Cog):
             else:
                 # 引換券は、おこづかいを加算するより先に消費する（連打で2回引かれないように）
                 ub.report(
-                    interaction.guild.id, interaction.user.id, "クジびきけん", -1,
+                    interaction.user.id, "クジびきけん", -1,
                     interaction.user.name
                 )
                 userId = str(interaction.user.id)[-6:].zfill(5)  # ID下6ケタを取得
@@ -254,15 +251,14 @@ class Daily(commands.Cog):
                 place = cfg.PRIZE_DICT[matchCount]["place"]
 
                 pocketMoney = ub.report(
-                    interaction.guild.id, interaction.user.id, "おこづかい",
-                    value, interaction.user.name)
+                    interaction.user.id, "おこづかい", value,
+                    interaction.user.name)
 
                 dialogText = f"\n"
 
                 try:
                     # 1位になっていたら「おかねもち」ロールを付与し、2位以下から剥奪する
-                    if pocketMoney == ub.top_value(
-                            interaction.guild.id, "おこづかい"):
+                    if pocketMoney == ub.top_value("おこづかい"):
                         dialogText = f"ロロ{cfg.EXCLAMATION_ICON}{interaction.guild.name}で いちばんの おかねもち だロト{cfg.EXCLAMATION_ICON}\n"
                         menymoneyRole = interaction.user.guild.get_role(
                             guild_settings.setting(
@@ -282,7 +278,7 @@ class Daily(commands.Cog):
 
                             # 2位以下のおかねもちロールを剥奪する処理
                             for user_id, money, _rank in ub.ranking(
-                                    interaction.guild.id, "おこづかい", 100):
+                                    "おこづかい", 100):
                                 lowerUser = interaction.guild.get_member(int(user_id))
                                 # インタラクションユーザーには実施しない
                                 if lowerUser and not interaction.user == lowerUser:

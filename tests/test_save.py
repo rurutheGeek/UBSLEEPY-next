@@ -54,18 +54,18 @@ def _fake_store(has_guild_column=True):
 def test_postgres_store_increments_with_upsert():
     store, connection = _fake_store()
 
-    assert store.report(555, 123, "おこづかい", 100, "テスト") == 100
+    assert store.report(123, "おこづかい", 100, "テスト") == 100
     insert = [call for call in connection.calls if "RETURNING value" in call[0]][0]
-    assert insert[1] == (555, 123, "おこづかい", 100, 100)  # 新規は0+100、既存は+100
+    assert insert[1] == (save.SAVE_SCOPE, 123, "おこづかい", 100, 100)  # 新規は0+100、既存は+100
     assert any("INSERT INTO save_user" in call[0] for call in connection.calls)
 
 
 def test_postgres_store_ticket_starts_at_one():
     store, connection = _fake_store()
 
-    assert store.report(555, 123, "クジびきけん", -1, "テスト") == 0
+    assert store.report(123, "クジびきけん", -1, "テスト") == 0
     insert = [call for call in connection.calls if "RETURNING value" in call[0]][0]
-    assert insert[1] == (555, 123, "クジびきけん", 0, -1)  # 1-1
+    assert insert[1] == (save.SAVE_SCOPE, 123, "クジびきけん", 0, -1)  # 1-1
 
 
 def test_guild_setting_store_upserts():
@@ -112,11 +112,11 @@ class FakeStore:
         self.users = {}
         self.values = {}
 
-    def set_user(self, guild_id, user_id, user_name):
-        self.users[(guild_id, user_id)] = user_name
+    def set_user(self, user_id, user_name):
+        self.users[user_id] = user_name
 
-    def set_value(self, guild_id, user_id, key, value):
-        self.values[(guild_id, user_id, key)] = value
+    def set_value(self, user_id, key, value):
+        self.values[(user_id, key)] = value
 
 
 def test_import_report_csv_keeps_large_ids(tmp_path):
@@ -129,14 +129,13 @@ def test_import_report_csv_keeps_large_ids(tmp_path):
     )
     store = FakeStore()
 
-    count = save.import_report_csv(store, path, 555)
+    count = save.import_report_csv(store, path)
 
-    assert store.users == {(555, 123456789012345678): "テスト",
-                           (555, 999): "名無し"}
-    assert store.values[(555, 123456789012345678, "おこづかい")] == 1500
-    assert store.values[(555, 123456789012345678, "bq正答")] == 3
-    assert store.values[(555, 999, "おこづかい")] == 250
-    assert (555, 999, "bq正答") not in store.values
+    assert store.users == {123456789012345678: "テスト", 999: "名無し"}
+    assert store.values[(123456789012345678, "おこづかい")] == 1500
+    assert store.values[(123456789012345678, "bq正答")] == 3
+    assert store.values[(999, "おこづかい")] == 250
+    assert (999, "bq正答") not in store.values
     assert count == 4
 
 
@@ -154,7 +153,7 @@ def test_report_raises_when_store_fails_and_does_not_write_csv(monkeypatch, tmp_
     monkeypatch.setattr(save, "reset_store", lambda: None)
 
     with pytest.raises(save.SaveError):
-        save.report(555, 123456789, "おこづかい", 100, "テスト", path)
+        save.report(123456789, "おこづかい", 100, "テスト", path)
 
     saved = pd.read_csv(path, index_col=0)
     assert saved.empty  # どこにも書かない
@@ -167,7 +166,7 @@ def test_report_uses_csv_when_store_is_not_configured(monkeypatch, tmp_path):
         "ユーザーID,ユーザー名,クジびきけん,おこづかい\n", encoding="utf-8"
     )
 
-    assert save.report(555, 123456789, "おこづかい", 100, "テスト", path) == 100
+    assert save.report(123456789, "おこづかい", 100, "テスト", path) == 100
     saved = pd.read_csv(path, index_col=0)
     assert saved.loc[123456789, "おこづかい"] == 100
 
@@ -198,10 +197,10 @@ def test_migration_skips_when_already_migrated():
 
 def test_store_ranking_sql_scopes_by_guild():
     store, connection = _fake_store()
-    store.ranking(555, "おこづかい", 5)
+    store.ranking("おこづかい", 5)
     sql, params = [c for c in connection.calls if "RANK() OVER" in c[0]][0]
     assert "guild_id = %s" in sql
-    assert params == (555, "おこづかい", 5)
+    assert params == (save.SAVE_SCOPE, "おこづかい", 5)
 
 
 def test_ranking_csv_ranks_ties_together(tmp_path):
@@ -242,9 +241,9 @@ def test_store_rank_counts_higher_values():
     store = save.PostgresSaveStore(
         {"password": "dummy"}, connect=lambda **kw: connection)
 
-    assert store.rank(555, 123, "おこづかい") == 3
+    assert store.rank(123, "おこづかい") == 3
     count_sql, params = [c for c in connection.calls if "count(*)" in c[0]][0]
-    assert params == (555, "おこづかい", 100)
+    assert params == (save.SAVE_SCOPE, "おこづかい", 100)
 
 
 def test_index_is_created_after_migration():

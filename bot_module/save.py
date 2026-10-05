@@ -54,12 +54,16 @@ CREATE INDEX IF NOT EXISTS save_value_rank_idx
     ON save_value (guild_id, save_key, value DESC)
 """
 
-# 旧スキーマ（guild_idなし）からの移行。既存行は legacy_guild_id のものとする。
+# セーブデータ（おこづかい・クジびきけん・戦績）は全サーバー共通。
+# DBの guild_id 列は共通スコープの固定値として使う（過去のスキーマとの互換）。
+SAVE_SCOPE = 0
+
+# 旧スキーマ（guild_idなし）からの移行。既存行は共通スコープへ入れる。
 MIGRATE_SQL = (
     "ALTER TABLE save_user ADD COLUMN guild_id BIGINT",
     "ALTER TABLE save_value ADD COLUMN guild_id BIGINT",
-    "UPDATE save_user SET guild_id = {guild_id} WHERE guild_id IS NULL",
-    "UPDATE save_value SET guild_id = {guild_id} WHERE guild_id IS NULL",
+    f"UPDATE save_user SET guild_id = {SAVE_SCOPE} WHERE guild_id IS NULL",
+    f"UPDATE save_value SET guild_id = {SAVE_SCOPE} WHERE guild_id IS NULL",
     "ALTER TABLE save_user ALTER COLUMN guild_id SET NOT NULL",
     "ALTER TABLE save_value ALTER COLUMN guild_id SET NOT NULL",
     # 外部キーが save_user の主キーを参照しているので、先に外す
@@ -95,11 +99,10 @@ def _db_config() -> dict | None:
 class PostgresSaveStore:
     """ubsleepy DBへの読み書き。接続は使い回し、切れていたら張り直す。"""
 
-    def __init__(self, config: dict, connect=None, legacy_guild_id: int = 0):
+    def __init__(self, config: dict, connect=None):
         self.config = config
         self._connect = connect
         self._connection = None
-        self.legacy_guild_id = int(legacy_guild_id)
 
     def _connection_or_connect(self):
         if self._connection is not None and not self._connection.closed:
@@ -127,56 +130,54 @@ class PostgresSaveStore:
             return
         with self._connection.transaction():
             for sql in MIGRATE_SQL:
-                self._connection.execute(
-                    sql.format(guild_id=self.legacy_guild_id))
+                self._connection.execute(sql)
 
-    def set_user(self, guild_id: int, user_id: int, user_name: str) -> None:
+    def set_user(self, user_id: int, user_name: str) -> None:
         self._connection_or_connect().execute(
             "INSERT INTO save_user (guild_id, user_id, user_name) "
             "VALUES (%s, %s, %s) "
             "ON CONFLICT (guild_id, user_id) DO UPDATE "
             "SET user_name = EXCLUDED.user_name, updated_at = now()",
-            (guild_id, user_id, user_name),
+            (SAVE_SCOPE, user_id, user_name),
         )
 
-    def set_value(self, guild_id: int, user_id: int, key: str, value: int) -> None:
+    def set_value(self, user_id: int, key: str, value: int) -> None:
         """移行用。増減ではなく値をそのまま入れる。"""
         self._connection_or_connect().execute(
             "INSERT INTO save_value (guild_id, user_id, save_key, value) "
             "VALUES (%s, %s, %s, %s) "
             "ON CONFLICT (guild_id, user_id, save_key) DO UPDATE "
             "SET value = EXCLUDED.value, updated_at = now()",
-            (guild_id, user_id, key, value),
+            (SAVE_SCOPE, user_id, key, value),
         )
 
-    def report(self, guild_id: int, user_id: int, key: str, delta: int,
-               user_name: str) -> int:
+    def report(self, user_id: int, key: str, delta: int, user_name: str) -> int:
         """1項目をdeltaだけ増減し、増減後の値を返す。"""
         connection = self._connection_or_connect()
         with connection.transaction():
-            self.set_user(guild_id, user_id, user_name)
+            self.set_user(user_id, user_name)
             row = connection.execute(
                 "INSERT INTO save_value (guild_id, user_id, save_key, value) "
                 "VALUES (%s, %s, %s, %s) "
                 "ON CONFLICT (guild_id, user_id, save_key) DO UPDATE "
                 "SET value = save_value.value + %s, updated_at = now() "
                 "RETURNING value",
-                (guild_id, user_id, key, initial_value(key) + delta, delta),
+                (SAVE_SCOPE, user_id, key, initial_value(key) + delta, delta),
             ).fetchone()
         return int(row[0])
 
-    def ranking(self, guild_id: int, key: str, limit: int = 5) -> list:
+    def ranking(self, key: str, limit: int = 5) -> list:
         """値の大きい順の (user_id, value, rank)。同値は同順位。"""
         rows = self._connection_or_connect().execute(
             "SELECT user_id, value, RANK() OVER (ORDER BY value DESC) "
             "FROM save_value WHERE guild_id = %s AND save_key = %s "
             "ORDER BY value DESC LIMIT %s",
-            (guild_id, key, limit),
+            (SAVE_SCOPE, key, limit),
         ).fetchall()
         return [(int(user_id), int(value), int(rank))
                 for user_id, value, rank in rows]
 
-    def rank(self, guild_id: int, user_id: int, key: str) -> int:
+    def rank(self, user_id: int, key: str) -> int:
         """ユーザーの順位。記録が無ければ0。同値は同順位。
 
         全件のランク付けをせず「自分より大きい値の数+1」で求める。
@@ -185,7 +186,7 @@ class PostgresSaveStore:
         row = connection.execute(
             "SELECT value FROM save_value "
             "WHERE guild_id = %s AND user_id = %s AND save_key = %s",
-            (guild_id, user_id, key),
+            (SAVE_SCOPE, user_id, key),
         ).fetchone()
         if row is None:
             return 0
@@ -193,26 +194,26 @@ class PostgresSaveStore:
         row = connection.execute(
             "SELECT count(*) FROM save_value "
             "WHERE guild_id = %s AND save_key = %s AND value > %s",
-            (guild_id, key, value),
+            (SAVE_SCOPE, key, value),
         ).fetchone()
         return int(row[0]) + 1
 
-    def top_value(self, guild_id: int, key: str) -> int:
+    def top_value(self, key: str) -> int:
         """いちばん高い値。記録が無ければ0。"""
         row = self._connection_or_connect().execute(
             "SELECT value FROM save_value "
             "WHERE guild_id = %s AND save_key = %s "
             "ORDER BY value DESC LIMIT 1",
-            (guild_id, key),
+            (SAVE_SCOPE, key),
         ).fetchone()
         return int(row[0]) if row else 0
 
-    def reset_value(self, guild_id: int, key: str, value: int) -> None:
-        """そのギルドの全員の値を同じ値にする（クジびきけんのリセット）。"""
+    def reset_value(self, key: str, value: int) -> None:
+        """全員の値を同じ値にする（クジびきけんのリセット）。"""
         self._connection_or_connect().execute(
             "UPDATE save_value SET value = %s, updated_at = now() "
             "WHERE guild_id = %s AND save_key = %s",
-            (value, guild_id, key),
+            (value, SAVE_SCOPE, key),
         )
 
     def get_guild_setting(self, guild_id: int, key: str) -> int | None:
@@ -275,8 +276,7 @@ def report_csv(
     return reports.loc[userId, repoIndex]
 
 
-def import_report_csv(store: PostgresSaveStore, csv_path: str | Path,
-                      guild_id: int) -> int:
+def import_report_csv(store: PostgresSaveStore, csv_path: str | Path) -> int:
     """従来のreport.csvをDBへ取り込む（値をそのまま入れる）。"""
     frame = pd.read_csv(csv_path, dtype=str)
     if "ユーザーID" not in frame.columns:
@@ -291,11 +291,11 @@ def import_report_csv(store: PostgresSaveStore, csv_path: str | Path,
         except ValueError:
             logger.warning(f"ユーザーIDを読み飛ばしました: {raw_id}")
             continue
-        store.set_user(guild_id, user_id, row.get("ユーザー名") or "unknown")
+        store.set_user(user_id, row.get("ユーザー名") or "unknown")
         for key, value in row.items():
             if key in ("ユーザーID", "ユーザー名") or pd.isna(value):
                 continue
-            store.set_value(guild_id, user_id, key, int(float(value)))
+            store.set_value(user_id, key, int(float(value)))
             count += 1
     return count
 
@@ -364,15 +364,6 @@ class SaveError(Exception):
 _STORE: PostgresSaveStore | None = None
 
 
-def _legacy_guild_id() -> int:
-    """旧データ（guild_idなし）をどのギルドのものとして移行するか。"""
-    try:
-        from bot_module.config import ACTIVE_GUILD_ID
-        return int(ACTIVE_GUILD_ID)
-    except Exception:
-        return 0
-
-
 def get_store() -> PostgresSaveStore | None:
     """設定済みならDBストア。未設定ならNone（CSVを使う）。"""
     global _STORE
@@ -380,7 +371,7 @@ def get_store() -> PostgresSaveStore | None:
         config = _db_config()
         if config is None:
             return None
-        _STORE = PostgresSaveStore(config, legacy_guild_id=_legacy_guild_id())
+        _STORE = PostgresSaveStore(config)
     return _STORE
 
 
@@ -419,7 +410,7 @@ def set_guild_setting(guild_id, key: str, value: int) -> bool:
 
 
 def report(
-    guild_id, userId, repoIndex: str, modifi: int, userName: str,
+    userId, repoIndex: str, modifi: int, userName: str,
     csv_path: str | Path
 ) -> int:
     """レポート（おこづかい・クジびきけん・戦績）を1項目更新する。
@@ -431,60 +422,60 @@ def report(
     if store is None:
         return report_csv(csv_path, userId, repoIndex, modifi, userName)
     try:
-        return store.report(int(guild_id), int(userId), repoIndex, modifi, userName)
+        return store.report(int(userId), repoIndex, modifi, userName)
     except Exception as error:
         logger.error(f"セーブDBへの書き込みに失敗しました\n{error}")
         reset_store()
         raise SaveError("セーブデータの保存に失敗しました") from error
 
 
-def ranking(guild_id, key: str, limit: int = 5, csv_path=None) -> list:
+def ranking(key: str, limit: int = 5, csv_path=None) -> list:
     """値の大きい順の (user_id, value, rank)。DBが無ければCSV。"""
     store = get_store()
     if store is None:
         return ranking_csv(csv_path, key, limit)
     try:
-        return store.ranking(int(guild_id), key, limit)
+        return store.ranking(key, limit)
     except Exception as error:
         logger.error(f"ランキングの読み込みに失敗しました\n{error}")
         reset_store()
         return []
 
 
-def rank(guild_id, user_id, key: str, csv_path=None) -> int:
+def rank(user_id, key: str, csv_path=None) -> int:
     """ユーザーの順位。記録が無ければ0。"""
     store = get_store()
     if store is None:
         return rank_csv(csv_path, user_id, key)
     try:
-        return store.rank(int(guild_id), int(user_id), key)
+        return store.rank(int(user_id), key)
     except Exception as error:
         logger.error(f"順位の読み込みに失敗しました\n{error}")
         reset_store()
         return 0
 
 
-def top_value(guild_id, key: str, csv_path=None) -> int:
+def top_value(key: str, csv_path=None) -> int:
     """いちばん高い値。記録が無ければ0。"""
     store = get_store()
     if store is None:
         return top_value_csv(csv_path, key)
     try:
-        return store.top_value(int(guild_id), key)
+        return store.top_value(key)
     except Exception as error:
         logger.error(f"最高額の読み込みに失敗しました\n{error}")
         reset_store()
         return 0
 
 
-def reset_value(guild_id, key: str, value: int, csv_path=None) -> None:
-    """そのギルドの全員の値を同じ値にする（クジびきけんのリセット）。"""
+def reset_value(key: str, value: int, csv_path=None) -> None:
+    """全員の値を同じ値にする（クジびきけんのリセット）。"""
     store = get_store()
     if store is None:
         reset_value_csv(csv_path, key, value)
         return
     try:
-        store.reset_value(int(guild_id), key, value)
+        store.reset_value(key, value)
     except Exception as error:
         logger.error(f"値のリセットに失敗しました\n{error}")
         reset_store()
@@ -496,16 +487,12 @@ def main() -> None:
 
     parser = argparse.ArgumentParser(description="report.csvをubsleepy DBへ取り込む")
     parser.add_argument("csv", help="取り込むreport.csv")
-    parser.add_argument(
-        "--guild-id", type=int, default=None,
-        help="取り込み先のギルドID（既定: 起動モードのギルド）")
     args = parser.parse_args()
     store = get_store()
     if store is None:
         raise SystemExit("UBSLEEPY_DB_PASSWORD が未設定です")
-    guild_id = args.guild_id if args.guild_id is not None else store.legacy_guild_id
-    count = import_report_csv(store, args.csv, guild_id)
-    print(f"imported {count} values (guild {guild_id})")
+    count = import_report_csv(store, args.csv)
+    print(f"imported {count} values")
 
 
 if __name__ == "__main__":
