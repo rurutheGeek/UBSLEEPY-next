@@ -66,7 +66,11 @@ class Help(commands.Cog):
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
     def _overview(self):
-        lines = ['`/help コマンド名` で1つのコマンドの詳細を表示します。', '']
+        lines = [
+            '`/help コマンド名` で1つのコマンドの詳細を表示します。',
+            'お問い合わせ: https://github.com/rurutheGeek/UBSLEEPY-next/issues',
+            '',
+        ]
         for command in self._commands():
             lines.append(f'**/{command.name}** — {command.description}')
             for sub in getattr(command, 'commands', []):
