@@ -83,8 +83,12 @@ class Quiz(commands.Cog):
 
         ub.output_log("戦績表示を実行します")
         try:
-            w = ub.report(showId, f"{cfg.QUIZNAME_DICT[quizname]}正答", 0, showName)
-            l = ub.report(showId, f"{cfg.QUIZNAME_DICT[quizname]}誤答", 0, showName)
+            w = ub.report(
+                interaction.guild.id, showId,
+                f"{cfg.QUIZNAME_DICT[quizname]}正答", 0, showName)
+            l = ub.report(
+                interaction.guild.id, showId,
+                f"{cfg.QUIZNAME_DICT[quizname]}誤答", 0, showName)
         except SaveError:
             await interaction.response.send_message(
                 "セーブデータの読み込みに失敗しました。時間をおいて試してください",
@@ -485,8 +489,10 @@ class quiz:
             await self.rm.add_reaction(reaction)
 
         if judge is not None:
+            guild = getattr(self.rm, "guild", None)
             try:
                 ub.report(
+                    guild.id if guild is not None else 0,
                     self.opener.id, f"{self.quizName}{judge}", 1, self.opener.name
                 )  # 回答記録のレポート
             except SaveError:

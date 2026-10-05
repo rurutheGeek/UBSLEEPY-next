@@ -5,8 +5,6 @@ import asyncio
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
-import pandas as pd
-
 import cogs.daily as daily
 
 JST = ZoneInfo("Asia/Tokyo")
@@ -47,6 +45,7 @@ class FakeUser:
 
 
 class FakeGuild:
+    id = 999
     name = "test-guild"
 
 
@@ -63,20 +62,19 @@ def _press_lottery(monkeypatch, calls, draws):
     """メモリ上に引換券とおこづかいを持ち、ボタンを draws 回押した場合を再現する。"""
     balance = {"クジびきけん": 1, "おこづかい": 0}
 
-    def fake_report(user_id, index, modifi, user_name):
+    def fake_report(guild_id, user_id, index, modifi, user_name):
         calls.append(("report", index, modifi))
         balance[index] = balance.get(index, 0) + modifi
         return balance[index]
-
-    def fake_read_csv(*args, **kwargs):
-        # ランキング1位を十分大きくして、ロールの付与・剥奪まで進めない
-        return pd.DataFrame({"ユーザーID": ["999999999"], "おこづかい": [10**9]})
 
     monkeypatch.setattr(daily.ub, "report", fake_report)
     monkeypatch.setattr(
         daily.ub, "attachment_file", lambda path: ("file", "attachment://image.png")
     )
-    monkeypatch.setattr(daily.pd, "read_csv", fake_read_csv)
+    # ランキング1位を十分大きくして、ロールの付与・剥奪まで進めない
+    monkeypatch.setattr(daily.ub, "top_value", lambda guild_id, key: 10**9)
+    monkeypatch.setattr(
+        daily.ub, "ranking", lambda guild_id, key, limit=5: [])
 
     cog = daily.Daily(bot=None)
     custom_id = f"lotoIdButton:12345:{_today_for_lottery()}"

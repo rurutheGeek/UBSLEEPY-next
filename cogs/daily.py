@@ -7,7 +7,6 @@ from zoneinfo import ZoneInfo
 
 import discord
 from discord.ext import commands, tasks
-import pandas as pd
 
 import bot_module.config as cfg
 from bot_module.command_scope import scoped
@@ -71,11 +70,8 @@ async def post_daily(bot, now: datetime, channelid: int):
     dairyView = discord.ui.View()
     dairyView.add_item(lotoButton)
 
-    lotoReset = pd.read_csv(cfg.REPORT_PATH)
-    lotoReset["クジびきけん"] = 1
-    lotoReset.to_csv(cfg.REPORT_PATH, index=False)
-
     dairyChannel = bot.get_channel(channelid)
+    ub.reset_value(dairyChannel.guild.id, "クジびきけん", 1)
     day = datetime.now(ZoneInfo("Asia/Tokyo"))
     await dairyChannel.send(
         f'日付が変わりました。 {day.strftime("%Y/%m/%d")} ({cfg.WEAK_DICT[str(day.weekday())]})',
@@ -142,43 +138,19 @@ class Daily(commands.Cog):
     @scoped
     @discord.app_commands.describe()
     async def pocketmoney(self, interaction: discord.Interaction):
+        guild_id = interaction.guild.id
         user_id = interaction.user.id
         try:
-            money = ub.report(user_id, "おこづかい", 0, interaction.user.name)
+            money = ub.report(
+                guild_id, user_id, "おこづかい", 0, interaction.user.name)
         except SaveError:
             await interaction.response.send_message(
                 "セーブデータの読み込みに失敗しました。時間をおいて試してください",
                 ephemeral=True,
             )
             return
-        df = pd.read_csv(cfg.REPORT_PATH, dtype={"ユーザーID": str})
-        user_id = str(user_id)
-
-        user_wallet = df[["ユーザーID", "おこづかい"]]
-        user_wallet_sorted = user_wallet.sort_values(
-            by="おこづかい", ascending=False
-        ).reset_index(drop=True)
-
-        # ランキングを作成し順位を取得
-        max_wallet = 0
-        userRank = 0
-        for i in range(1, len(user_wallet_sorted) + 1):
-            if max_wallet == user_wallet_sorted["おこづかい"][i - 1]:
-                rank = user_wallet_sorted.loc[i - 2, "rank"]
-            else:
-                max_wallet = user_wallet_sorted["おこづかい"][i - 1]
-                rank = i
-            user_wallet_sorted.loc[i - 1, "rank"] = rank
-            if user_wallet_sorted.loc[i - 1, "ユーザーID"] == user_id:
-                userRank = rank
-
-            if userRank != 0 and i >= 5:
-                break
-        # ランキングのトップ5を取得
-        top_n = 5
-        top_users = user_wallet_sorted.head(top_n)
-
-        ranking_list = top_users.values.tolist()
+        ranking_list = ub.ranking(guild_id, "おこづかい", 5)
+        userRank = ub.rank(guild_id, user_id, "おこづかい")
 
         try:
             pdwGuild = await self.bot.fetch_guild(
@@ -232,14 +204,20 @@ class Daily(commands.Cog):
                 await interaction.followup.send(
                     f"それは 今日のIDくじ じゃないロ{cfg.EXCLAMATION_ICON}", ephemeral=True
                 )
-            elif ub.report(interaction.user.id, "クジびきけん", 0, interaction.user.name) == 0:
+            elif ub.report(
+                interaction.guild.id, interaction.user.id, "クジびきけん", 0,
+                interaction.user.name
+            ) == 0:
                 # すでにくじを引いている場合
                 await interaction.followup.send(
                     "くじが ひけるのは 1日1回 まで なんだロ……", ephemeral=True
                 )
             else:
                 # 引換券は、おこづかいを加算するより先に消費する（連打で2回引かれないように）
-                ub.report(interaction.user.id, "クジびきけん", -1, interaction.user.name)
+                ub.report(
+                    interaction.guild.id, interaction.user.id, "クジびきけん", -1,
+                    interaction.user.name
+                )
                 userId = str(interaction.user.id)[-6:].zfill(5)  # ID下6ケタを取得
 
                 matchCount = 0
@@ -255,46 +233,45 @@ class Daily(commands.Cog):
                 text = cfg.PRIZE_DICT[matchCount]["text"]
                 place = cfg.PRIZE_DICT[matchCount]["place"]
 
-                pocketMoney = ub.report(interaction.user.id, "おこづかい", value, interaction.user.name)
+                pocketMoney = ub.report(
+                    interaction.guild.id, interaction.user.id, "おこづかい",
+                    value, interaction.user.name)
 
                 dialogText = f"\n"
 
                 try:
-                    # おこづかいランキングを確認し,1位になっていた場合ロールを付与する
-                    df = pd.read_csv(cfg.REPORT_PATH, dtype={"ユーザーID": str})
-                    user_wallet = df[["ユーザーID", "おこづかい"]]
-                    user_wallet_sorted = user_wallet.sort_values(
-                        by="おこづかい", ascending=False
-                    ).reset_index(drop=True)
-
-                    if pocketMoney == user_wallet_sorted.loc[0, "おこづかい"]:
+                    # 1位になっていたら「おかねもち」ロールを付与し、2位以下から剥奪する
+                    if pocketMoney == ub.top_value(
+                            interaction.guild.id, "おこづかい"):
                         dialogText = f"ロロ{cfg.EXCLAMATION_ICON}{interaction.guild.name}で いちばんの おかねもち だロト{cfg.EXCLAMATION_ICON}\n"
-                        # おかねもちロール付与の処理
                         menymoneyRole = interaction.user.guild.get_role(cfg.MENYMONEY_ROLE_ID)
-                        if menymoneyRole not in interaction.user.roles:
-                            ub.output_log(
-                                f"おこづかい一位が変わりました: {interaction.user.name}"
-                            )
-                            await interaction.user.add_roles(menymoneyRole)
-                            ub.output_log(
-                                f"ロールを付与しました: {interaction.user.name}に{menymoneyRole.name}"
-                            )
+                        if menymoneyRole is None:
+                            ub.output_log("おかねもちロールが未設定です")
+                        else:
+                            # おかねもちロール付与の処理
+                            if menymoneyRole not in interaction.user.roles:
+                                ub.output_log(
+                                    f"おこづかい一位が変わりました: {interaction.user.name}"
+                                )
+                                await interaction.user.add_roles(menymoneyRole)
+                                ub.output_log(
+                                    f"ロールを付与しました: {interaction.user.name}に{menymoneyRole.name}"
+                                )
 
-                        # 2位以下のおかねもちロールを剥奪する処理
-                        for i in range(0, len(user_wallet_sorted)):
-                            lowerUser = interaction.guild.get_member(
-                                int(user_wallet_sorted.loc[i, "ユーザーID"])
-                            )
-                            # インタラクションユーザーには実施しない
-                            if lowerUser and not interaction.user == lowerUser:
-                                if pocketMoney > user_wallet_sorted.loc[i, "おこづかい"]:
-                                    if menymoneyRole in lowerUser.roles:
-                                        await lowerUser.remove_roles(menymoneyRole)
-                                        ub.output_log(
-                                            f"ロールを剥奪しました: {lowerUser.name}から{menymoneyRole.name}"
-                                        )
-                                    else:
-                                        break
+                            # 2位以下のおかねもちロールを剥奪する処理
+                            for user_id, money, _rank in ub.ranking(
+                                    interaction.guild.id, "おこづかい", 100):
+                                lowerUser = interaction.guild.get_member(int(user_id))
+                                # インタラクションユーザーには実施しない
+                                if lowerUser and not interaction.user == lowerUser:
+                                    if pocketMoney > money:
+                                        if menymoneyRole in lowerUser.roles:
+                                            await lowerUser.remove_roles(menymoneyRole)
+                                            ub.output_log(
+                                                f"ロールを剥奪しました: {lowerUser.name}から{menymoneyRole.name}"
+                                            )
+                                        else:
+                                            break
 
                 except Exception as e:
                     ub.output_error(f"おこづかいランキングの処理でエラーが発生しました\n{e}")
