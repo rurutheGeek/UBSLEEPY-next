@@ -9,8 +9,8 @@
     python debug_cli.py search みず 合計<400
     python debug_cli.py                # 対話モード（q → answer / hint / give も可）
 
-既定ではセーブへ書き込まず、reportの呼び出しを表示だけする（--save で実際に
-保存先へ書く）。図鑑とセーブの接続先は環境変数（PKDB_PASSWORD・
+既定ではセーブの増減を書き込まず、表示だけする（読み取りは本物の保存先を見る。
+--save で増減も実際に保存先へ書く）。図鑑とセーブの接続先は環境変数（PKDB_PASSWORD・
 UBSLEEPY_DB_PASSWORD）に従う。--debug で開発用ギルドの設定を使う。
 """
 from __future__ import annotations
@@ -337,8 +337,11 @@ class Harness:
         self._original_report = ub.report
 
         def fake_report(user_id, index, modifi, user_name):
-            self._report_state[index] = self._report_state.get(index, 0) + modifi
-            value = self._report_state[index]
+            # 読み取り（modifi=0）は本物の保存先から。増減は表示だけにする。
+            current = self._original_report(user_id, index, 0, user_name)
+            if modifi == 0:
+                return current
+            value = current + modifi
             self.recorder.report(user_id, index, modifi, user_name, value)
             return value
 
