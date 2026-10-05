@@ -40,22 +40,19 @@ def _load_all(bot):
     asyncio.run(_load())
 
 
-def _registered_command_names(bot):
-    names = {command.name for command in bot.tree.get_commands()}
-    for guild_id in cfg.GUILD_IDS:
-        names |= {
-            command.name
-            for command in bot.tree.get_commands(guild=discord.Object(id=guild_id))
-        }
-    return names
+def _global_command_names(bot):
+    return {command.name for command in bot.tree.get_commands()}
 
 
-def test_cogs_register_expected_commands():
+def test_cogs_register_expected_commands_globally():
     bot = commands.Bot(
         command_prefix=commands.when_mentioned, intents=discord.Intents.none()
     )
     _load_all(bot)
-    assert _registered_command_names(bot) == EXPECTED_COMMANDS
+    assert _global_command_names(bot) == EXPECTED_COMMANDS
+    # 通常起動ではグローバル登録（ギルド限定コマンドは無い）
+    for guild_id in cfg.GUILD_IDS:
+        assert bot.tree.get_commands(guild=discord.Object(id=guild_id)) == []
 
 
 def test_main_setup_hook_loads_all_cogs():
@@ -66,23 +63,30 @@ def test_main_setup_hook_loads_all_cogs():
     asyncio.run(bot.setup_hook())
 
     assert set(bot.extensions) == set(MAIN_COGS)
-    assert _registered_command_names(bot) == EXPECTED_COMMANDS
+    assert _global_command_names(bot) == EXPECTED_COMMANDS
 
-def test_on_ready_logs_missing_guilds_once_without_warning(caplog):
-    import logging
 
-    from main import UBSleepy
+def test_on_ready_syncs_globally_after_clearing_guild_commands(monkeypatch):
+    import main
 
-    bot = UBSleepy()
-    bot.get_guild = lambda guild_id: None
+    monkeypatch.setattr(main, "DEBUG_MODE", False)
+    monkeypatch.setattr(main, "GUILD_IDS", [111111111111111111, 222222222222222222])
+    bot = main.UBSleepy()
+    calls = []
 
-    with caplog.at_level(logging.INFO, logger="ubsleepy"):
-        asyncio.run(bot.on_ready())
-        asyncio.run(bot.on_ready())
+    async def fake_sync(*, guild=None):
+        calls.append(guild.id if guild else None)
+        return []
 
-    missing = [r for r in caplog.records if "見つかりません" in r.message]
-    assert len(missing) == 1
-    assert all(record.levelno < logging.WARNING for record in missing)
+    bot.tree.sync = fake_sync
+    bot.get_guild = lambda guild_id: type("G", (), {"name": f"g{guild_id}"})()
+
+    asyncio.run(bot.on_ready())
+
+    # ギルド分のクリア同期 → グローバル同期（2回目のon_readyは何もしない）
+    assert calls == [111111111111111111, 222222222222222222, None]
+    asyncio.run(bot.on_ready())
+    assert calls == [111111111111111111, 222222222222222222, None]
 
 
 def test_on_ready_debug_syncs_only_the_developer_guild(monkeypatch):
@@ -97,7 +101,8 @@ def test_on_ready_debug_syncs_only_the_developer_guild(monkeypatch):
         synced.append(kwargs)
 
     bot.tree.sync = fake_sync
-    bot.get_guild = lambda guild_id: type("G", (), {"name": "dev"})()
+    bot.get_guild = lambda guild_id: type(
+        "G", (), {"name": "dev", "id": 111111111111111111})()
 
     asyncio.run(bot.on_ready())
 

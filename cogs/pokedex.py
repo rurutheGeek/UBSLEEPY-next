@@ -10,11 +10,11 @@ import numpy as np
 from PIL import Image
 
 import bot_module.config as cfg
+from bot_module.command_scope import scoped
 import bot_module.embed as ub_embed
 import bot_module.func as ub
 from bot_module.pokedex import get_pokedex
 
-GUILDS = [discord.Object(id=guild_id) for guild_id in cfg.GUILD_IDS]
 
 
 class Pokedex(commands.Cog):
@@ -24,7 +24,7 @@ class Pokedex(commands.Cog):
         self.bot = bot
 
     @discord.app_commands.command(name="dex", description="ポケモンの図鑑データを表示します")
-    @discord.app_commands.guilds(*GUILDS)
+    @scoped
     @discord.app_commands.describe(name="表示したいポケモンのおなまえ")
     async def dex(self, interaction: discord.Interaction, name: str):
         ub.output_log("図鑑を実行します")
@@ -171,7 +171,7 @@ class Pokedex(commands.Cog):
                 await message.edit(embed=ub_embed.error_404(name), attachments=[], view=None)
 
     @discord.app_commands.command(name="comp", description="2~6匹のポケモンの種族値を比較します")
-    @discord.app_commands.guilds(*GUILDS)
+    @scoped
     @discord.app_commands.describe(
         pokemon1="1匹目のポケモン",
         pokemon2="2匹目のポケモン",
@@ -313,7 +313,7 @@ class Pokedex(commands.Cog):
         )
 
     @discord.app_commands.command(name="simil", description="指定したポケモンと似ている種族値のポケモンを表示します")
-    @discord.app_commands.guilds(*GUILDS)
+    @scoped
     @discord.app_commands.describe(
         name="基準となるポケモンのおなまえ",
         evolution="進化段階フィルター (auto:入力ポケモンと同じ, final:最終進化/進化しない, middle:中間進化/進化前, all:すべて)"
