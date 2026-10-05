@@ -67,25 +67,32 @@ def test_main_setup_hook_loads_all_cogs():
     assert _global_command_names(bot) == EXPECTED_COMMANDS
 
 
-def test_on_ready_syncs_globally(monkeypatch):
+def test_on_ready_syncs_globally_and_copies_to_club_guilds(monkeypatch):
     import main
 
     monkeypatch.setattr(main, "DEBUG_MODE", False)
+    monkeypatch.setattr(main, "GUILD_IDS", [111111111111111111])
     bot = main.UBSleepy()
     calls = []
+    copied = []
 
     async def fake_sync(*, guild=None):
-        calls.append(guild)
+        calls.append(guild.id if guild else None)
         return []
 
     bot.tree.sync = fake_sync
+    bot.tree.copy_global_to = lambda guild: copied.append(guild.id)
+    bot.get_guild = lambda guild_id: type("G", (), {"id": guild_id})()
 
     asyncio.run(bot.on_ready())
-    assert calls == [None]
+
+    # グローバル → クラブのギルドへコピーして即時反映
+    assert calls == [None, 111111111111111111]
+    assert copied == [111111111111111111]
 
     # 2回目のon_readyは何もしない
     asyncio.run(bot.on_ready())
-    assert calls == [None]
+    assert calls == [None, 111111111111111111]
 
 
 def test_on_ready_debug_syncs_only_the_developer_guild(monkeypatch):

@@ -12,7 +12,7 @@ from discord.ext import commands
 from dotenv import load_dotenv  # type: ignore
 
 # 分割されたモジュール
-from bot_module.config import DEBUG_MODE, DEVELOPER_GUILD_ID
+from bot_module.config import DEBUG_MODE, DEVELOPER_GUILD_ID, GUILD_IDS
 import bot_module.func as ub
 from bot_module.logging_setup import setup_logging
 from bot_module.pokedex import get_pokedex
@@ -88,11 +88,20 @@ class UBSleepy(commands.Bot):
             ub.output_log(f"登録済のサーバーを1個読み込みました\n#0 {guild.name}")
             return
 
-        # 通常はグローバル登録のみ（ギルド限定コマンドは使わない）
+        # グローバル登録（全サーバー向け。反映に最大1時間かかることがある）
         await self.tree.sync()
+
+        # クラブのサーバーにはギルドコマンドのコピーも配り、即時反映させる
+        for guild_id in GUILD_IDS:
+            guild = self.get_guild(guild_id)
+            if guild is None:
+                continue
+            self.tree.copy_global_to(guild=guild)
+            await self.tree.sync(guild=guild)
+
         synced = [f"\n#{i} {guild.name}" for i, guild in enumerate(self.guilds)]
         ub.output_log(
-            f"グローバルにコマンドを登録しました（{len(self.tree.get_commands())}個）"
+            f"コマンドを登録しました（{len(self.tree.get_commands())}個）"
             f"{''.join(synced)}")
 
     async def on_guild_join(self, guild):
