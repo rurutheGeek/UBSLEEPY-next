@@ -113,3 +113,13 @@ def test_stdin_mode_keeps_quiz_state(harness, capsys, monkeypatch):
     out = capsys.readouterr().out
     assert "出題: 種族値クイズ" in out
     assert "答えは" in out
+
+
+def test_comp_and_simil_use_followup(harness, capsys):
+    asyncio.run(harness.dispatch(["comp", "リザードン", "ピカチュウ"]))
+    asyncio.run(harness.dispatch(["simil", "リザードン", "final"]))
+
+    out = capsys.readouterr().out
+    assert "種族値を比較" in out
+    assert "似ている種族値" in out
+    assert "エラー" not in out
