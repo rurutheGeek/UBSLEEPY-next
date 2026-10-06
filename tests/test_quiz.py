@@ -78,7 +78,11 @@ class FakeChannel:
 
     async def send(self, *args, **kwargs):
         self.sent.append((args, kwargs))
-        return FakeMessage(author=None, channel=self)
+        attachments = []
+        file = kwargs.get('file')
+        if file is not None:
+            attachments = [type('A', (), {'filename': file.filename})()]
+        return FakeMessage(author=None, channel=self, attachments=attachments)
 
 
 class FakeReference:
@@ -88,12 +92,14 @@ class FakeReference:
 
 
 class FakeMessage:
-    def __init__(self, author, content="", channel=None, reference=None, embeds=None):
+    def __init__(self, author, content="", channel=None, reference=None, embeds=None,
+                 attachments=None):
         self.author = author
         self.content = content
         self.channel = channel
         self.reference = reference
         self.embeds = embeds or []
+        self.attachments = attachments or []
         self.id = 999
         self.guild = FakeGuild()
 
@@ -249,58 +255,80 @@ def _cry_project(tmp_path, kinds):
     return cry_dir
 
 
-def test_cry_quiz_posts_the_cry_and_remembers_the_answer(monkeypatch, tmp_path):
-    cry_dir = _cry_project(tmp_path, ('latest',))
+def _cry_session(monkeypatch, tmp_path, kinds, mode=None):
+    cry_dir = _cry_project(tmp_path, kinds)
     monkeypatch.setattr(session_module, 'CRY_DIRECTORY', cry_dir)
 
     class FakePokedex:
         records = [_pokemon()]
 
     monkeypatch.setattr(session_module, 'get_pokedex', lambda: FakePokedex())
-
-    channel = FakeChannel()
     state = quiz_module.QuizState()
-    session = quiz_module.QuizSession(FakeBot(), 'cryq', state)
+    if mode is not None:
+        state.cry_mode = mode
+    return quiz_module.QuizSession(FakeBot(), 'cryq', state)
+
+
+def test_cry_quiz_posts_the_cry_and_derives_the_answer(monkeypatch, tmp_path):
+    session = _cry_session(monkeypatch, tmp_path, ('latest',))
+    channel = FakeChannel()
     asyncio.run(session.post(channel))
 
-    assert len(channel.sent) == 1
-    _, kwargs = channel.sent[0]
-    assert kwargs['file'].filename == 'cry.ogg'  # 答えが割れないファイル名
-    assert state.cry_answers == {999: ('リザードン', 'latest')}
+    filename = channel.sent[0][1]['file'].filename
+    assert session_module.CRY_FILENAME_RE.match(filename)
+    # 投稿の添付ファイル名から答えを逆算できる（状態を持たない）
+    assert session_module.cry_from_message(session.qm) == ('リザードン', 'latest')
+
+
+def test_cry_quiz_filenames_change_every_time(monkeypatch, tmp_path):
+    session = _cry_session(monkeypatch, tmp_path, ('latest',))
+    channel = FakeChannel()
+    asyncio.run(session.post(channel))
+    first = channel.sent[0][1]['file'].filename
+    asyncio.run(session.post(channel))
+    second = channel.sent[1][1]['file'].filename
+
+    assert first != second  # nonceで毎回変わる＝覚えたハッシュは使えない
+    assert session_module.cry_from_message(session.qm) == ('リザードン', 'latest')
 
 
 def test_cry_quiz_uses_only_the_new_cry_by_default(monkeypatch, tmp_path):
-    cry_dir = _cry_project(tmp_path, ('latest', 'legacy'))
-    monkeypatch.setattr(session_module, 'CRY_DIRECTORY', cry_dir)
-
-    class FakePokedex:
-        records = [_pokemon()]
-
-    monkeypatch.setattr(session_module, 'get_pokedex', lambda: FakePokedex())
-
-    state = quiz_module.QuizState()
-    session = quiz_module.QuizSession(FakeBot(), 'cryq', state)
+    session = _cry_session(monkeypatch, tmp_path, ('latest', 'legacy'))
     asyncio.run(session.post(FakeChannel()))
 
-    assert state.cry_mode == 'latest'  # 既定はあたらしいのみ
-    assert state.cry_answers == {999: ('リザードン', 'latest')}
+    assert session.state.cry_mode == 'latest'  # 既定はデフォルト（今の鳴き声）
+    assert session_module.cry_from_message(session.qm) == ('リザードン', 'latest')
 
 
 def test_cry_quiz_can_use_the_old_cry(monkeypatch, tmp_path):
-    cry_dir = _cry_project(tmp_path, ('latest', 'legacy'))
-    monkeypatch.setattr(session_module, 'CRY_DIRECTORY', cry_dir)
-
-    class FakePokedex:
-        records = [_pokemon()]
-
-    monkeypatch.setattr(session_module, 'get_pokedex', lambda: FakePokedex())
-
-    state = quiz_module.QuizState()
-    state.cry_mode = 'legacy'
-    session = quiz_module.QuizSession(FakeBot(), 'cryq', state)
+    session = _cry_session(monkeypatch, tmp_path, ('latest', 'legacy'),
+                           mode='legacy')
     asyncio.run(session.post(FakeChannel()))
 
-    assert state.cry_answers == {999: ('リザードン', 'legacy')}
+    assert session_module.cry_from_message(session.qm) == ('リザードン', 'legacy')
+
+
+class FakeQM:
+    def __init__(self):
+        self.edits = []
+
+    async def edit(self, **kwargs):
+        self.edits.append(kwargs)
+
+
+def test_cry_hint_keeps_the_audio_attachment():
+    q = _quiz('cryq')
+    q.rm = FakeRM()
+    q.qm = FakeQM()
+    q.quizEmbed = discord.Embed()
+    q.ansZero = _pokemon()
+    q.ansText = 'ヒント'
+
+    asyncio.run(q._QuizSession__hint())
+
+    assert q.qm.edits  # ヒントでEmbedを書き換える
+    assert 'attachments' not in q.qm.edits[-1]  # 添付（鳴き声）は消さない
+    assert q.rm.replies  # ヒントを返信する
 
 
 def test_crydata_changes_the_mode(monkeypatch):
