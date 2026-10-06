@@ -221,13 +221,10 @@ class QuizSession:
             quizEmbed.title = "鳴き声クイズ"
             if voiceChannel is not None:
                 quizEmbed.description = (
-                    "鳴き声をボイスチャンネルで流します。聞いてポケモン名を答えよう"
-                    "\n（回答はこのチャットに名前を書いてね）")
+                    "鳴き声をボイスチャンネルで流します。聞いてポケモン名を答えよう")
                 quizView = replay_button_view()
             else:
-                quizEmbed.description = (
-                    "添付の鳴き声を聞いて ポケモン名を答えよう"
-                    "\n（回答はこのメッセージへのリプライで）")
+                quizEmbed.description = "添付の鳴き声を聞いて ポケモン名を答えよう"
             quizEmbed.set_thumbnail(url=self.__imageLink())  # 正解までDecamark
             cryPath = CRY_DIRECTORY / cryKind / f"{qDatas.ndex_number}.ogg"
             cryNonce = secrets.token_hex(CRY_NONCE_BYTES)
