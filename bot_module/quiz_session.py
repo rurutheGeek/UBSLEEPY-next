@@ -6,10 +6,12 @@ cogs/quiz.py の Cog が作り、Discordへの送受信はこのクラスが行�
 実行時状態は QuizState にまとめ、Cogが持つものを渡す。
 """
 import copy
+import hashlib
 import os
 from pathlib import Path
 import random
 import re
+import secrets
 
 import discord
 import jaconv
@@ -25,14 +27,46 @@ from bot_module.save import SaveError
 CRY_DIRECTORY = Path("resource/cry")
 CRY_KINDS = ("latest", "legacy")
 # 開示で「どちらの鳴き声だったか」に使う呼び名
-CRY_LABELS = {"latest": "デフォルト", "legacy": "BW以前"}
-# 出題条件（既定はデフォルト＝いまの鳴き声。設定は /crydata で変更）
+CRY_LABELS = {"latest": "今", "legacy": "BW以前"}
+# 出題条件（既定はデフォルト＝今の鳴き声。設定は /crydata で変更）
 CRY_MODE_LABELS = {
     "latest": "デフォルト",
     "legacy": "BW以前",
     "mix": "両方",
 }
-CRY_FILENAME = "cry.ogg"
+# 添付ファイル名は cry-<種類>-<nonce>-<答えのハッシュ>.ogg。
+# nonceは出題ごとのランダム値（ファイル名に埋め込むので時刻にも状態にも依存しない）。
+# 同じポケモンでも毎回ファイル名が変わるため、ハッシュを覚えても使えない。
+# 答えは投稿から逆算する（名前の候補を nonce と一緒にハッシュして一致を探す）。
+CRY_HASH_LENGTH = 12
+CRY_NONCE_BYTES = 3
+CRY_FILENAME_RE = re.compile(r"^cry-(latest|legacy)-([0-9a-f]+)-([0-9a-f]+)\.ogg$")
+
+
+def cry_hash(name: str, nonce: str) -> str:
+    """nonceと答えの名前から、添付ファイル名に使う短いハッシュを作る。"""
+    digest = hashlib.sha1(f"{nonce}:{name}".encode("utf-8")).hexdigest()
+    return digest[:CRY_HASH_LENGTH]
+
+
+def cry_filename(name: str, kind: str, nonce: str) -> str:
+    return f"cry-{kind}-{nonce}-{cry_hash(name, nonce)}.ogg"
+
+
+def cry_from_message(message) -> tuple | None:
+    """投稿の添付ファイル名から (ポケモン名, 鳴き声の種類) を逆算する。
+
+    見つからなければNone（添付が消された・形式が違うとき）。
+    """
+    for attachment in getattr(message, "attachments", None) or []:
+        match = CRY_FILENAME_RE.match(getattr(attachment, "filename", "") or "")
+        if match is None:
+            continue
+        kind, nonce, digest = match.group(1), match.group(2), match.group(3)
+        for pokemon in get_pokedex().records:
+            if pokemon.form_id == "00" and cry_hash(pokemon.name, nonce) == digest:
+                return pokemon.name, kind
+    return None
 
 
 class QuizState:
@@ -42,7 +76,6 @@ class QuizState:
         self.bq_filter_dict = copy.deepcopy(cfg.DEFAULT_FILTER_DICT)  # 現在の出題条件
         self.bakusoku_mode = True  # 連続出題モード
         self.processing = False  # 回答開示処理中フラグ
-        self.cry_answers = {}  # 鳴き声クイズ: 投稿メッセージID -> ポケモン名
         self.cry_mode = "latest"  # 鳴き声クイズの出題条件: latest / legacy / mix
 
 
@@ -152,9 +185,10 @@ class QuizSession:
             quizEmbed.title = "鳴き声クイズ"
             quizEmbed.description = "鳴き声を聞いて ポケモン名を答えよう"
             quizEmbed.set_thumbnail(url=self.__imageLink())  # 正解までDecamark
+            cryNonce = secrets.token_hex(CRY_NONCE_BYTES)
             quizFile = discord.File(
                 str(CRY_DIRECTORY / cryKind / f"{qDatas.ndex_number}.ogg"),
-                filename=CRY_FILENAME)  # ファイル名から答えが割れないようにする
+                filename=cry_filename(qDatas.name, cryKind, cryNonce))
 
         else:
             ub.output_warning(f"不明なクイズ識別子(post): {self.quizName}")
@@ -164,12 +198,6 @@ class QuizSession:
         self.qm = await sendChannel.send(
             content=quizContent, file=quizFile, embed=quizEmbed, view=quizView
         )
-
-        if self.quizName == "cryq":
-            # 鳴き声クイズは答えがメッセージに残らないので、ここで覚えておく
-            self.state.cry_answers[self.qm.id] = (qDatas.name, cryKind)
-            for old in list(self.state.cry_answers)[:-50]:
-                self.state.cry_answers.pop(old, None)
 
     async def try_response(self, response):
 
@@ -231,7 +259,7 @@ class QuizSession:
         elif self.quizName in ["etojq", "jtoeq", "ctojq"]:
             self.examText = re.findall(r"^(.+)\s->", self.quizEmbed.description)[0]
         elif self.quizName == "cryq":
-            entry = self.state.cry_answers.get(self.qm.id)
+            entry = cry_from_message(self.qm)
             if entry is None:
                 await self.rm.reply(
                     "この問題の答えが分からなくなりました。もう一度 /q で出題してください")
@@ -434,7 +462,8 @@ class QuizSession:
         if not any(field.name == hintIndex for field in self.quizEmbed.fields):
             self.quizEmbed.add_field(name=hintIndex, value=str(hintValue))
             try:
-                await self.qm.edit(embed=self.quizEmbed, attachments=[])
+                # 添付（鳴き声・グラフ）は消さない。attachments を渡さないと保持される
+                await self.qm.edit(embed=self.quizEmbed)
             except discord.errors.Forbidden:
                 pass
 
@@ -476,7 +505,7 @@ class QuizSession:
         if self.quizName == "bq":
             self.quizEmbed.description = f'こたえ: {",".join(self.ansList)}'
         elif self.quizName == "cryq":
-            entry = self.state.cry_answers.get(self.qm.id) or ('', '')
+            entry = cry_from_message(self.qm) or ('', '')
             label = CRY_LABELS.get(entry[1], '')
             self.quizEmbed.description = (
                 f"こたえ: {self.ansList[0]}"
@@ -522,7 +551,8 @@ class QuizSession:
 
         if isinstance(self.rm, discord.Message):
             try:
-                await self.qm.edit(embed=self.quizEmbed, attachments=[])
+                # 添付は消さない（鳴き声をもう一度聞けるように）
+                await self.qm.edit(embed=self.quizEmbed)
             except discord.errors.Forbidden:
                 await self.qm.channel.send(embed=self.quizEmbed)
 
@@ -532,8 +562,9 @@ class QuizSession:
             for child in fixView.children:
                 child.disabled = True
             try:
+                # 添付は消さない（attachments を渡さないと保持される）
                 await self.rm.response.edit_message(
-                    embed=self.quizEmbed, attachments=[], view=fixView
+                    embed=self.quizEmbed, view=fixView
                 )
             except discord.errors.Forbidden:
                 pass

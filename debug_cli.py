@@ -88,6 +88,9 @@ class FakeChannel:
             embeds=_embeds_from(kwargs),
             message_id=_next_id(),
         )
+        files = kwargs.get("files") or ([kwargs["file"]] if kwargs.get("file") else [])
+        message.attachments = [
+            FakeFile(getattr(file, "filename", str(file))) for file in files]
         self.sent.append(message)
         self.recorder.action("channel.send", content=content, **kwargs)
         return message
@@ -125,6 +128,7 @@ class FakeMessage(discord.Message):
         self.embeds = list(embeds or [])
         self.reference = reference
         self.guild = guild or FakeGuild()
+        self.attachments = []
         self.reactions = []
         return self
 
