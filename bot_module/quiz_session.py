@@ -648,7 +648,8 @@ class QuizSession:
                 description="次のクイズを生成チュウ",
             )
             loadMessage = await self.qm.channel.send(embed=loadingEmbed)
-            await QuizSession(self.bot, self.quizName, self.state).post(self.qm.channel)
+            await QuizSession(self.bot, self.quizName, self.state).post(
+                self.qm.channel, voiceChannel=self.voice_channel)
             await loadMessage.delete()
 
     def __answers(self):
