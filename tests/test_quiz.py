@@ -358,6 +358,95 @@ def test_crydata_sets_conditions_and_resets(monkeypatch):
     assert cog.state.cry_mode == 'latest'
 
 
+class FakeVoiceClient:
+    def __init__(self, channel):
+        self.channel = channel
+        self.played = []
+
+    def play(self, source):
+        self.played.append(source)
+
+
+class FakeVoiceChannel:
+    def __init__(self, guild, name='vc'):
+        self.guild = guild
+        self.name = name
+
+    async def connect(self, **kwargs):
+        self.guild.voice_client = FakeVoiceClient(self)
+        return self.guild.voice_client
+
+
+class FakeVoiceGuild:
+    def __init__(self):
+        self.voice_client = None
+
+
+def test_cry_quiz_plays_in_the_voice_channel(monkeypatch, tmp_path):
+    session = _cry_session(monkeypatch, tmp_path, ('latest',))
+    monkeypatch.setattr(session_module, '_audio_source', lambda path: 'audio')
+    channel = FakeChannel()
+    guild = FakeVoiceGuild()
+
+    asyncio.run(session.post(channel, voiceChannel=FakeVoiceChannel(guild)))
+
+    assert guild.voice_client is not None
+    assert guild.voice_client.played == ['audio']  # 鳴き声を再生した
+    assert 'ボイスチャンネルで再生します' in channel.sent[0][1]['embed'].description
+
+
+def test_cry_quiz_replays_with_a_word(monkeypatch, tmp_path):
+    session = _cry_session(monkeypatch, tmp_path, ('latest',))
+    monkeypatch.setattr(session_module, '_audio_source', lambda path: 'audio')
+    guild = FakeVoiceGuild()
+    asyncio.run(session.post(FakeChannel(), voiceChannel=FakeVoiceChannel(guild)))
+
+    session.qm.guild = guild  # 投稿メッセージのギルド＝VCのギルド
+    session.rm = FakeRM()
+    asyncio.run(session._QuizSession__replay_cry())
+
+    assert guild.voice_client.played == ['audio', 'audio']  # もう一度再生した
+    assert session.rm.replies == ['もう一度再生しました']
+
+
+class FakeLeaveClient:
+    def __init__(self):
+        self.channel = type('C', (), {'name': 'vc', 'members': []})()
+        self.disconnected = False
+
+    async def disconnect(self):
+        self.disconnected = True
+
+
+class FakeLeaveGuild:
+    def __init__(self):
+        self.voice_client = FakeLeaveClient()
+
+
+class FakeLeaveMember:
+    def __init__(self, guild):
+        self.guild = guild
+
+
+def test_the_bot_leaves_an_empty_voice_channel():
+    guild = FakeLeaveGuild()
+    cog = quiz_module.Quiz(FakeBot())
+
+    asyncio.run(cog.on_voice_state_update(FakeLeaveMember(guild), None, None))
+
+    assert guild.voice_client.disconnected
+
+
+def test_the_bot_stays_while_someone_is_in_the_voice_channel():
+    guild = FakeLeaveGuild()
+    guild.voice_client.channel.members = [type('M', (), {'bot': False})()]
+    cog = quiz_module.Quiz(FakeBot())
+
+    asyncio.run(cog.on_voice_state_update(FakeLeaveMember(guild), None, None))
+
+    assert not guild.voice_client.disconnected
+
+
 class FakeQM:
     def __init__(self):
         self.edits = []

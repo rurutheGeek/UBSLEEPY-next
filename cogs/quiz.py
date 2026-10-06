@@ -72,7 +72,8 @@ class Quiz(commands.Cog):
         # 起動時と再接続時に図鑑カタログを用意する（pkdbが無ければCSV）
         get_pokedex()
 
-    @discord.app_commands.command(name="q", description="現在の出題設定に基づいてクイズを出題します")
+    @discord.app_commands.command(
+        name="q", description="クイズを出題します（鳴き声クイズはボイスでも再生）")
     @scoped
     @discord.app_commands.describe(
         quizname="クイズの種別 未記入で種族値クイズが指定されます"
@@ -90,8 +91,23 @@ class Quiz(commands.Cog):
             description=f"{quizname}を生成しています",
         )
         await interaction.response.send_message(embed=seiseiEmbed, delete_after=1)
+        # 出題者がボイスチャンネルにいれば、そこで鳴き声を流す
+        voice_state = getattr(interaction.user, "voice", None)
+        voice_channel = voice_state.channel if voice_state is not None else None
         await QuizSession(self.bot, cfg.QUIZNAME_DICT[quizname], self.state).post(
-            interaction.channel)
+            interaction.channel, voiceChannel=voice_channel)
+
+    @commands.Cog.listener()
+    async def on_voice_state_update(self, member, before, after):
+        """ボットが入っているボイスチャンネルが空になったら退出する。"""
+        voice_client = member.guild.voice_client
+        if voice_client is None or voice_client.channel is None:
+            return
+        if any(not other.bot for other in voice_client.channel.members):
+            return
+        name = voice_client.channel.name
+        await voice_client.disconnect()
+        ub.output_log(f"ボイスチャンネルから退出しました: {name}")
 
     @discord.app_commands.command(name="quizrate", description="クイズの戦績を表示します")
     @scoped
