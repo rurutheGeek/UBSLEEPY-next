@@ -14,8 +14,17 @@ from bot_module.command_scope import scoped
 import bot_module.func as ub
 import bot_module.guild_settings as guild_settings
 from bot_module.pokedex import get_pokedex
-from bot_module.quiz_session import CRY_MODE_LABELS, QuizSession, QuizState
+from bot_module.quiz_session import (
+    CRY_DIRECTORY, CRY_MODE_LABELS, CRY_REPLAY_BUTTON_ID, QuizSession, QuizState,
+    cry_from_message, play_cry)
 from bot_module.save import SaveError
+
+
+def voice_channel_for(channel):
+    """ボイスチャンネル付属のテキストチャットなら、そのボイスチャンネルを返す。"""
+    if isinstance(channel, (discord.VoiceChannel, discord.StageChannel)):
+        return channel
+    return None
 
 # /crydata の入力ゆれ -> 鳴き声クイズの出題条件（モード）
 # キーは「今／昔／両方」。他の言い方も受け付ける。
@@ -91,11 +100,9 @@ class Quiz(commands.Cog):
             description=f"{quizname}を生成しています",
         )
         await interaction.response.send_message(embed=seiseiEmbed, delete_after=1)
-        # 出題者がボイスチャンネルにいれば、そこで鳴き声を流す
-        voice_state = getattr(interaction.user, "voice", None)
-        voice_channel = voice_state.channel if voice_state is not None else None
+        # ボイスチャンネル付属のテキストチャットで出したときは、そこで鳴き声を流す
         await QuizSession(self.bot, cfg.QUIZNAME_DICT[quizname], self.state).post(
-            interaction.channel, voiceChannel=voice_channel)
+            interaction.channel, voiceChannel=voice_channel_for(interaction.channel))
 
     @commands.Cog.listener()
     async def on_voice_state_update(self, member, before, after):
@@ -273,34 +280,67 @@ class Quiz(commands.Cog):
                 else:
                     ub.output_log("botへのリプライは無視されました")
 
-        #チャンネルのidがギルドのクイズチャンネルの場合
+        #チャンネルのidがギルドのクイズチャンネルの場合（名前当てクイズへの回答）
         elif (message.guild is not None
               and message.channel.id == guild_settings.setting(
                   message.guild.id, 'QUIZ_CHANNEL_ID')):
-            #メッセージの内容がポケモン名であるか判定
-            if ub.fetch_pokemon(message.content) is not None:
-                #一番新しいクイズの投稿を探し,未回答の場合は
-                foundQuiz = False
-                async for quizMessage in message.channel.history(limit=10):
-                    if quizMessage.embeds:
-                        embedFooterText = quizMessage.embeds[0].footer.text or ""
-                        if (
-                            "No.26 ポケモンクイズ - bq" in embedFooterText
-                            and not "(done)" in embedFooterText
-                        ):
-                            #メッセージをリプライに偽装する quizクラスの内容を修正すべき
-                            message.reference = discord.MessageReference(
-                                message_id=quizMessage.id,
-                                channel_id=quizMessage.channel.id,
-                                guild_id=quizMessage.guild.id,
-                                #resolved=message
-                            )
-                            message.reference.resolved = quizMessage
-                            await QuizSession(self.bot, embedFooterText.split()[3], self.state).try_response(message)
-                            foundQuiz = True
-                            break
-                if not foundQuiz:
-                    ub.output_warning("ポケモン名が投稿されましたがクイズ投稿が見つかりませんでした")
+            await self._answer_in_channel(message, ("bq", "cryq"))
+
+        # ボイスチャンネル付属のテキストチャット（鳴き声クイズへの回答）
+        elif (message.guild is not None
+              and voice_channel_for(message.channel) is not None):
+            await self._answer_in_channel(message, ("cryq", "bq"))
+
+    async def _answer_in_channel(self, message, quiz_names):
+        """チャンネルに書かれたポケモン名を、最新の未回答クイズへの回答にする。"""
+        if ub.fetch_pokemon(message.content) is None:
+            return
+        async for quizMessage in message.channel.history(limit=10):
+            if not quizMessage.embeds:
+                continue
+            footer = quizMessage.embeds[0].footer.text or ""
+            if "(done)" in footer:
+                continue
+            for name in quiz_names:
+                if f"No.26 ポケモンクイズ - {name}" not in footer:
+                    continue
+                # メッセージをリプライに偽装する
+                message.reference = discord.MessageReference(
+                    message_id=quizMessage.id,
+                    channel_id=quizMessage.channel.id,
+                    guild_id=quizMessage.guild.id,
+                )
+                message.reference.resolved = quizMessage
+                await QuizSession(self.bot, name, self.state).try_response(message)
+                return
+        ub.output_warning("ポケモン名が投稿されましたがクイズ投稿が見つかりませんでした")
+
+    @commands.Cog.listener()
+    async def on_interaction(self, interaction: discord.Interaction):
+        """鳴き声クイズの「もう一度再生」ボタンを処理する。"""
+        data = interaction.data or {}
+        if data.get("component_type") != 2:
+            return
+        if data.get("custom_id") != CRY_REPLAY_BUTTON_ID:
+            return
+        entry = cry_from_message(interaction.message)
+        voice_client = getattr(interaction.guild, "voice_client", None)
+        if entry is None or voice_client is None or voice_client.channel is None:
+            await interaction.response.send_message(
+                "ボイスチャンネルにいないときは、添付の音声を聞いてください",
+                ephemeral=True)
+            return
+        name, kind = entry
+        found = ub.fetch_pokemon(name)
+        if not found:
+            return
+        path = CRY_DIRECTORY / kind / f"{found[0].ndex_number}.ogg"
+        if play_cry(voice_client, path):
+            await interaction.response.send_message(
+                "もう一度再生しました", ephemeral=True)
+        else:
+            await interaction.response.send_message(
+                "再生できませんでした", ephemeral=True)
 
 
 

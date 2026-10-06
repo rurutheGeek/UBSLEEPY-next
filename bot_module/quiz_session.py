@@ -41,8 +41,9 @@ CRY_MODE_LABELS = {
 CRY_HASH_LENGTH = 12
 CRY_NONCE_BYTES = 3
 CRY_FILENAME_RE = re.compile(r"^cry-([0-9a-f]+)-([0-9a-f]+)\.ogg$")
-# 鳴き声クイズ: リプライで再生し直す言葉
-CRY_REPLAY_WORDS = ("もういちど", "もう一度", "もう一回", "リプレイ", "replay")
+# 鳴き声クイズ: 投稿につける「もう一度再生」ボタン
+CRY_REPLAY_BUTTON_ID = "cryReplayButton"
+CRY_REPLAY_LABEL = "もう一度再生"
 
 
 def cry_hash(name: str, kind: str, nonce: str) -> str:
@@ -58,6 +59,27 @@ def cry_filename(name: str, kind: str, nonce: str) -> str:
 def _audio_source(path):
     """ボイス再生用の音源。テストから差し替えられるよう関数にしてある。"""
     return discord.FFmpegPCMAudio(str(path))
+
+
+def play_cry(voice_client, path) -> bool:
+    """接続済みのボイスクライアントで鳴き声を流す。"""
+    try:
+        voice_client.play(_audio_source(path))
+        return True
+    except (discord.ClientException, discord.HTTPException, OSError) as error:
+        ub.output_error(f"ボイスで鳴き声を流せませんでした: {error}")
+        return False
+
+
+def replay_button_view() -> discord.ui.View:
+    """鳴き声クイズの投稿に付ける「もう一度再生」ボタン。"""
+    view = discord.ui.View(timeout=None)
+    view.add_item(discord.ui.Button(
+        label=CRY_REPLAY_LABEL,
+        style=discord.ButtonStyle.secondary,
+        custom_id=CRY_REPLAY_BUTTON_ID,
+    ))
+    return view
 
 
 def cry_from_message(message) -> tuple | None:
@@ -96,9 +118,11 @@ class QuizSession:
         self.bot = bot
         self.quizName = quizName
         self.state = state or QuizState()
+        self.voice_channel = None  # 出題時に鳴き声を流すボイスチャンネル
 
     async def post(self, sendChannel, voiceChannel=None):
         ub.output_log(f"{self.quizName}: クイズを出題します")
+        self.voice_channel = voiceChannel
 
         quizContent = None
         quizFile = None
@@ -202,6 +226,7 @@ class QuizSession:
             cryNonce = secrets.token_hex(CRY_NONCE_BYTES)
             quizFile = discord.File(
                 str(cryPath), filename=cry_filename(qDatas.name, cryKind, cryNonce))
+            quizView = replay_button_view()
             if voiceChannel is not None:
                 quizEmbed.description += "\n（ボイスチャンネルで再生します）"
 
@@ -228,29 +253,12 @@ class QuizSession:
                 voice_client = await voice_channel.connect(self_deaf=True)
             elif voice_client.channel != voice_channel:
                 await voice_client.move_to(voice_channel)
-            voice_client.play(_audio_source(path))
-            ub.output_log(f"{self.quizName}: 鳴き声を再生します: {voice_channel.name}")
         except (discord.Forbidden, discord.ClientException,
                 discord.HTTPException, OSError) as error:
-            ub.output_error(f"{self.quizName}: ボイスで鳴き声を流せませんでした: {error}")
-
-    async def __replay_cry(self):
-        """「もういちど」で鳴き声を再生し直す（VCにいるときだけ）。"""
-        entry = cry_from_message(self.qm)
-        if entry is None:
+            ub.output_error(f"{self.quizName}: ボイスに接続できませんでした: {error}")
             return
-        name, kind = entry
-        found = ub.fetch_pokemon(name)
-        if not found:
-            return
-        voice_client = getattr(self.qm.guild, "voice_client", None)
-        if voice_client is None or voice_client.channel is None:
-            await self.rm.reply(
-                "ボイスチャンネルに入っていないので、添付の音声を聞いてください")
-            return
-        path = CRY_DIRECTORY / kind / f"{found[0].ndex_number}.ogg"
-        await self.__play_cry(voice_client.channel, path)
-        await self.rm.reply("もう一度再生しました")
+        if play_cry(voice_client, path):
+            ub.output_log(f"{self.quizName}: 鳴き声を再生します: {voice_channel.name}")
 
     async def try_response(self, response):
 
@@ -318,11 +326,6 @@ class QuizSession:
                     "この問題の答えが分からなくなりました。もう一度 /q で出題してください")
                 return
             self.examText = entry[0]
-
-        # 鳴き声クイズ: 「もういちど」で再生し直す
-        if self.quizName == "cryq" and self.ansText in CRY_REPLAY_WORDS:
-            await self.__replay_cry()
-            return
 
         # ここでクイズの回答を取得する
         self.ansList, self.ansZero = self.__answers()
