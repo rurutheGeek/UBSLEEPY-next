@@ -103,6 +103,9 @@ class FakeMessage:
         self.id = 999
         self.guild = FakeGuild()
 
+    async def delete(self):
+        pass
+
 
 class FakeBot:
     def __init__(self):
@@ -493,6 +496,26 @@ def test_the_replay_button_without_a_voice_client_explains():
     asyncio.run(cog.on_interaction(interaction))
 
     assert '添付' in interaction.response.messages[0][0]
+
+
+def test_the_continuation_keeps_playing_in_the_voice_channel(monkeypatch):
+    calls = []
+
+    class FakeSession:
+        def __init__(self, bot, name, state):
+            self.name = name
+
+        async def post(self, channel, voiceChannel=None):
+            calls.append((channel, voiceChannel))
+
+    session = session_module.QuizSession(FakeBot(), 'cryq', quiz_module.QuizState())
+    session.voice_channel = 'vc'
+    session.qm = FakeMessage(author=None, channel=FakeChannel())
+    monkeypatch.setattr(session_module, 'QuizSession', FakeSession)
+
+    asyncio.run(session._QuizSession__continue())
+
+    assert calls and calls[0][1] == 'vc'  # 連続出題でもVCで流す
 
 
 def test_voice_channel_for_detects_a_voice_chat():
