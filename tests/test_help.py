@@ -49,7 +49,8 @@ def test_text_command_detail_explains_the_modes():
     text = next(t for t in help_module.TEXT_COMMANDS if t[0] == 'crydata')
     embed = help_module.Help._text_detail(text)
     assert '/crydata' in embed.title
-    assert 'デフォルト' in embed.description
+    assert 'デフォルト' in embed.title  # モード
+    assert '地方' in embed.description  # 絞り込みの例
 
 
 def test_detail_for_a_command_lists_parameters():

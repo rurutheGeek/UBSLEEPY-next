@@ -34,38 +34,42 @@ CRY_MODE_LABELS = {
     "legacy": "BW以前",
     "mix": "両方",
 }
-# 添付ファイル名は cry-<種類>-<nonce>-<答えのハッシュ>.ogg。
+# 添付ファイル名は cry-<nonce>-<ハッシュ>.ogg。
 # nonceは出題ごとのランダム値（ファイル名に埋め込むので時刻にも状態にも依存しない）。
-# 同じポケモンでも毎回ファイル名が変わるため、ハッシュを覚えても使えない。
-# 答えは投稿から逆算する（名前の候補を nonce と一緒にハッシュして一致を探す）。
+# ハッシュには答えの名前と鳴き声の種類を混ぜるので、種類はファイル名からは読めない。
+# 同じポケモンでも毎回ファイル名が変わり、答えは投稿から逆算できる（状態を持たない）。
 CRY_HASH_LENGTH = 12
 CRY_NONCE_BYTES = 3
-CRY_FILENAME_RE = re.compile(r"^cry-(latest|legacy)-([0-9a-f]+)-([0-9a-f]+)\.ogg$")
+CRY_FILENAME_RE = re.compile(r"^cry-([0-9a-f]+)-([0-9a-f]+)\.ogg$")
 
 
-def cry_hash(name: str, nonce: str) -> str:
-    """nonceと答えの名前から、添付ファイル名に使う短いハッシュを作る。"""
-    digest = hashlib.sha1(f"{nonce}:{name}".encode("utf-8")).hexdigest()
+def cry_hash(name: str, kind: str, nonce: str) -> str:
+    """種類・nonce・答えの名前から、添付ファイル名に使う短いハッシュを作る。"""
+    digest = hashlib.sha1(f"{kind}:{nonce}:{name}".encode("utf-8")).hexdigest()
     return digest[:CRY_HASH_LENGTH]
 
 
 def cry_filename(name: str, kind: str, nonce: str) -> str:
-    return f"cry-{kind}-{nonce}-{cry_hash(name, nonce)}.ogg"
+    return f"cry-{nonce}-{cry_hash(name, kind, nonce)}.ogg"
 
 
 def cry_from_message(message) -> tuple | None:
     """投稿の添付ファイル名から (ポケモン名, 鳴き声の種類) を逆算する。
 
-    見つからなければNone（添付が消された・形式が違うとき）。
+    名前と種類の組み合わせをハッシュして一致を探す。見つからなければNone
+    （添付が消された・形式が違うとき）。
     """
     for attachment in getattr(message, "attachments", None) or []:
         match = CRY_FILENAME_RE.match(getattr(attachment, "filename", "") or "")
         if match is None:
             continue
-        kind, nonce, digest = match.group(1), match.group(2), match.group(3)
+        nonce, digest = match.group(1), match.group(2)
         for pokemon in get_pokedex().records:
-            if pokemon.form_id == "00" and cry_hash(pokemon.name, nonce) == digest:
-                return pokemon.name, kind
+            if pokemon.form_id != "00":
+                continue
+            for kind in CRY_KINDS:
+                if cry_hash(pokemon.name, kind, nonce) == digest:
+                    return pokemon.name, kind
     return None
 
 
@@ -77,6 +81,7 @@ class QuizState:
         self.bakusoku_mode = True  # 連続出題モード
         self.processing = False  # 回答開示処理中フラグ
         self.cry_mode = "latest"  # 鳴き声クイズの出題条件: latest / legacy / mix
+        self.cry_filter_dict = {}  # 鳴き声クイズの絞り込み（地方・世代など。空は全部）
 
 
 class QuizSession:
@@ -179,7 +184,8 @@ class QuizSession:
             picked = self.__random_cry()
             if picked is None:
                 await sendChannel.send(
-                    "鳴き声がありません。tools/fetch_cries.py を実行してください")
+                    "出題条件に合う鳴き声がありません"
+                    "（`/crydata` で条件を確認、リセットで既定に戻せます）")
                 return
             qDatas, cryKind = picked
             quizEmbed.title = "鳴き声クイズ"
@@ -649,8 +655,11 @@ class QuizSession:
             allowed = CRY_KINDS
         else:
             allowed = (self.state.cry_mode,)
+        pokedex = get_pokedex()
+        records = (pokedex.filter(self.state.cry_filter_dict)
+                   if self.state.cry_filter_dict else pokedex.records)
         candidates = []
-        for pokemon in get_pokedex().records:
+        for pokemon in records:
             if pokemon.form_id != "00":
                 continue
             kinds = [kind for kind in allowed

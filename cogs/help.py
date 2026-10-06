@@ -15,8 +15,10 @@ from bot_module.command_scope import scoped
 TEXT_COMMANDS = (
     ('bqdata', '/bqdata [条件...]',
      '種族値クイズの出題条件の表示・変更（例: `/bqdata リセット`、`/bqdata タイプ みず`）'),
-    ('crydata', '/crydata [デフォルト|BW以前|両方]',
-     '鳴き声クイズの出題条件の表示・変更（既定はデフォルト。例: `/crydata BW以前`）'),
+    ('crydata', '/crydata [デフォルト|BW以前|両方] [条件...]',
+     '鳴き声クイズの出題条件の表示・変更。モードのほか、地方・世代などで絞り込めます'
+     '（例: `/crydata BW以前`、`/crydata 地方 カントー`、`/crydata 世代 1`、'
+     '`/crydata リセット`）'),
 )
 
 
