@@ -5,6 +5,8 @@ import asyncio
 import discord
 from discord.ext import commands
 
+import cogs.help as help_module
+
 COGS = [
     "cogs.pokedex",
     "cogs.quiz",
@@ -34,6 +36,20 @@ def test_overview_lists_commands():
     assert '/dex' in embed.description
     assert '/pocketmoney' in embed.description
     assert '/search' in embed.description
+
+
+def test_overview_lists_the_text_commands():
+    bot = _load()
+    embed = bot.get_cog('Help')._overview()
+    assert '/bqdata' in embed.description
+    assert '/crydata' in embed.description
+
+
+def test_text_command_detail_explains_the_modes():
+    text = next(t for t in help_module.TEXT_COMMANDS if t[0] == 'crydata')
+    embed = help_module.Help._text_detail(text)
+    assert '/crydata' in embed.title
+    assert 'デフォルト' in embed.description
 
 
 def test_detail_for_a_command_lists_parameters():

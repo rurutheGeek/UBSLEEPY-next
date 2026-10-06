@@ -269,8 +269,8 @@ def test_cry_quiz_posts_the_cry_and_remembers_the_answer(monkeypatch, tmp_path):
     assert state.cry_answers == {999: ('リザードン', 'latest')}
 
 
-def test_cry_quiz_uses_the_old_cry_when_only_legacy_exists(monkeypatch, tmp_path):
-    cry_dir = _cry_project(tmp_path, ('legacy',))
+def test_cry_quiz_uses_only_the_new_cry_by_default(monkeypatch, tmp_path):
+    cry_dir = _cry_project(tmp_path, ('latest', 'legacy'))
     monkeypatch.setattr(session_module, 'CRY_DIRECTORY', cry_dir)
 
     class FakePokedex:
@@ -282,7 +282,42 @@ def test_cry_quiz_uses_the_old_cry_when_only_legacy_exists(monkeypatch, tmp_path
     session = quiz_module.QuizSession(FakeBot(), 'cryq', state)
     asyncio.run(session.post(FakeChannel()))
 
+    assert state.cry_mode == 'latest'  # 既定はあたらしいのみ
+    assert state.cry_answers == {999: ('リザードン', 'latest')}
+
+
+def test_cry_quiz_can_use_the_old_cry(monkeypatch, tmp_path):
+    cry_dir = _cry_project(tmp_path, ('latest', 'legacy'))
+    monkeypatch.setattr(session_module, 'CRY_DIRECTORY', cry_dir)
+
+    class FakePokedex:
+        records = [_pokemon()]
+
+    monkeypatch.setattr(session_module, 'get_pokedex', lambda: FakePokedex())
+
+    state = quiz_module.QuizState()
+    state.cry_mode = 'legacy'
+    session = quiz_module.QuizSession(FakeBot(), 'cryq', state)
+    asyncio.run(session.post(FakeChannel()))
+
     assert state.cry_answers == {999: ('リザードン', 'legacy')}
+
+
+def test_crydata_changes_the_mode(monkeypatch):
+    cog = quiz_module.Quiz(FakeBot())
+    channel = FakeChannel()
+    monkeypatch.setattr(quiz_module.ub, 'output_log', lambda text: None)
+
+    for word, mode in (('BW以前', 'legacy'), ('両方', 'mix'),
+                       ('リセット', 'latest'), ('デフォルト', 'latest')):
+        message = FakeMessage(author=FakeUser(), content=f'/crydata {word}',
+                              channel=channel)
+        asyncio.run(cog.on_message(message))
+        assert cog.state.cry_mode == mode, word
+
+    message = FakeMessage(author=FakeUser(), content='/crydata', channel=channel)
+    asyncio.run(cog.on_message(message))
+    assert cog.state.cry_mode == 'latest'  # 引数なしは表示だけ
 
 
 def test_cry_quiz_resolves_the_answer_from_the_state(monkeypatch):

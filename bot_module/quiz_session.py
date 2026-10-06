@@ -24,7 +24,14 @@ from bot_module.save import SaveError
 # latest=あたらしい鳴き声（全種）、legacy=BWまでの古い鳴き声（1〜649）。
 CRY_DIRECTORY = Path("resource/cry")
 CRY_KINDS = ("latest", "legacy")
-CRY_LABELS = {"latest": "あたらしいなきごえ", "legacy": "BWまでのなきごえ"}
+# 開示で「どちらの鳴き声だったか」に使う呼び名
+CRY_LABELS = {"latest": "デフォルト", "legacy": "BW以前"}
+# 出題条件（既定はデフォルト＝いまの鳴き声。設定は /crydata で変更）
+CRY_MODE_LABELS = {
+    "latest": "デフォルト",
+    "legacy": "BW以前",
+    "mix": "両方",
+}
 CRY_FILENAME = "cry.ogg"
 
 
@@ -36,6 +43,7 @@ class QuizState:
         self.bakusoku_mode = True  # 連続出題モード
         self.processing = False  # 回答開示処理中フラグ
         self.cry_answers = {}  # 鳴き声クイズ: 投稿メッセージID -> ポケモン名
+        self.cry_mode = "latest"  # 鳴き声クイズの出題条件: latest / legacy / mix
 
 
 class QuizSession:
@@ -472,7 +480,7 @@ class QuizSession:
             label = CRY_LABELS.get(entry[1], '')
             self.quizEmbed.description = (
                 f"こたえ: {self.ansList[0]}"
-                + (f"（{label}）" if label else ''))
+                + (f"（{label}のなきごえ）" if label else ''))
         elif self.quizName == "acq":
             self.quizEmbed.description = f"{ub.bss_to_text(self.ansZero)}\n"
             if self.ansList[0] == "同値":
@@ -603,13 +611,18 @@ class QuizSession:
     def __random_cry(self):
         """鳴き声ファイルがある基本形態から (ポケモン, 種類) をランダムに選ぶ。
 
-        あたらしい鳴き声とBWまでの古い鳴き声の両方から、あるものを選ぶ。
+        出題条件（self.state.cry_mode）に合う種類だけを使う。
+        mix のときは、あるものをランダムに選ぶ。
         """
+        if self.state.cry_mode == "mix":
+            allowed = CRY_KINDS
+        else:
+            allowed = (self.state.cry_mode,)
         candidates = []
         for pokemon in get_pokedex().records:
             if pokemon.form_id != "00":
                 continue
-            kinds = [kind for kind in CRY_KINDS
+            kinds = [kind for kind in allowed
                      if (CRY_DIRECTORY / kind / f"{pokemon.ndex_number}.ogg").exists()]
             if kinds:
                 candidates.append((pokemon, kinds))
