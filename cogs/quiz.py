@@ -293,8 +293,12 @@ class Quiz(commands.Cog):
             await self._answer_in_channel(message, ("cryq", "bq"))
 
     async def _answer_in_channel(self, message, quiz_names):
-        """チャンネルに書かれたポケモン名を、最新の未回答クイズへの回答にする。"""
-        if ub.fetch_pokemon(message.content) is None:
+        """チャンネルに書かれたポケモン名を、最新の未回答クイズへの回答にする。
+
+        図鑑に無い言葉（雑談など）は無視する（fetch_pokemon は見つからないと
+        空のリストを返すので、真偽で判定する）。
+        """
+        if not ub.fetch_pokemon(message.content):
             return
         async for quizMessage in message.channel.history(limit=10):
             if not quizMessage.embeds:
