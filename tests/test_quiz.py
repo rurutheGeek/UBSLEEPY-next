@@ -551,6 +551,31 @@ def test_a_name_in_the_voice_text_chat_answers_the_cry_quiz(monkeypatch):
     assert sessions[0].responses == [message]
 
 
+def test_a_non_pokemon_message_in_the_channel_is_ignored(monkeypatch):
+    # 雑談（図鑑に無い言葉）には判定も返事もリアクションもしない
+    channel = FakeVoiceChannel()
+    embed = discord.Embed()
+    embed.set_footer(text='No.26 ポケモンクイズ - cryq')
+    channel.messages.append(FakeMessage(author=FakeUser(), embeds=[embed], channel=channel))
+    message = FakeMessage(author=FakeUser(), content='なにこれ', channel=channel)
+
+    sessions = []
+
+    class FakeSession:
+        def __init__(self, bot, name, state):
+            sessions.append(self)
+
+        async def try_response(self, response):
+            pass
+
+    monkeypatch.setattr(quiz_module, 'QuizSession', FakeSession)
+    cog = quiz_module.Quiz(FakeBot())
+
+    asyncio.run(cog.on_message(message))
+
+    assert sessions == []
+
+
 class FakeLeaveClient:
     def __init__(self):
         self.channel = type('C', (), {'name': 'vc', 'members': []})()
