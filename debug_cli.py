@@ -567,7 +567,7 @@ HELP = """コマンド一覧:
   pocketmoney                   おこづかい
   bmode [ON|OFF]                連続出題モード
   bqdata [条件...]              出題条件の表示・変更
-  crydata [デフォルト|BW以前|両方]  鳴き声の出題条件の表示・変更
+  crydata [今|昔|両方]          鳴き声の出題条件の表示・変更
   help / quit
 """
 

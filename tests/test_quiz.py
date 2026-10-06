@@ -296,7 +296,7 @@ def test_cry_quiz_uses_only_the_new_cry_by_default(monkeypatch, tmp_path):
     session = _cry_session(monkeypatch, tmp_path, ('latest', 'legacy'))
     asyncio.run(session.post(FakeChannel()))
 
-    assert session.state.cry_mode == 'latest'  # 既定はデフォルト（今の鳴き声）
+    assert session.state.cry_mode == 'latest'  # 既定は今の鳴き声
     assert session_module.cry_from_message(session.qm) == ('リザードン', 'latest')
 
 
@@ -386,8 +386,8 @@ def test_crydata_changes_the_mode(monkeypatch):
     channel = FakeChannel()
     monkeypatch.setattr(quiz_module.ub, 'output_log', lambda text: None)
 
-    for word, mode in (('BW以前', 'legacy'), ('両方', 'mix'),
-                       ('リセット', 'latest'), ('デフォルト', 'latest')):
+    for word, mode in (('昔', 'legacy'), ('両方', 'mix'),
+                       ('リセット', 'latest'), ('今', 'latest')):
         message = FakeMessage(author=FakeUser(), content=f'/crydata {word}',
                               channel=channel)
         asyncio.run(cog.on_message(message))
