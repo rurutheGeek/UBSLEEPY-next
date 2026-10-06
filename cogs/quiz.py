@@ -17,16 +17,43 @@ from bot_module.pokedex import get_pokedex
 from bot_module.quiz_session import CRY_MODE_LABELS, QuizSession, QuizState
 from bot_module.save import SaveError
 
-# /crydata の入力ゆれ -> 鳴き声クイズの出題条件
+# /crydata の入力ゆれ -> 鳴き声クイズの出題条件（モード）
 CRY_MODE_ALIASES = {
     "デフォルト": "latest", "でふぉると": "latest", "default": "latest",
     "あたらしい": "latest", "新しい": "latest", "新": "latest", "latest": "latest",
-    "リセット": "latest", "reset": "latest",
     "BW以前": "legacy", "BWいぜん": "legacy", "BW": "legacy", "bw": "legacy",
     "むかし": "legacy", "昔": "legacy", "古い": "legacy", "legacy": "legacy",
     "両方": "mix", "りょうほう": "mix", "ミックス": "mix", "みっくす": "mix",
     "mix": "mix",
 }
+# 出題条件の言葉（/bqdata・/crydata で共有）。この言葉だけを書くとその条件を消す。
+FILTER_REMOVE_WORDS = (
+    "タイプ", "特性", "出身地", "初登場世代", "進化段階",
+    "HP", "こうげき", "ぼうぎょ", "とくこう", "とくぼう", "すばやさ", "合計",
+)
+STAT_WORDS = ("HP", "こうげき", "ぼうぎょ", "とくこう", "とくぼう", "すばやさ", "合計")
+
+
+def update_filter(filters: dict, words: list, reset: dict) -> dict:
+    """出題条件の言葉を filters に適用する（/bqdata・/crydata で共有）。
+
+    「リセット」で reset の内容へ、「種族値」で種族値の条件を消す。
+    条件名だけを書くとその条件を消し、値は make_filter_dict で足す。
+    """
+    if "リセット" in words:
+        filters.clear()
+        filters.update(copy.deepcopy(reset))
+        words.remove("リセット")
+    if "種族値" in words:
+        for key in STAT_WORDS:
+            filters.pop(key, None)
+        words.remove("種族値")
+    for word in words:
+        if word in FILTER_REMOVE_WORDS:
+            filters.pop(word, None)
+    words = [word for word in words if word not in FILTER_REMOVE_WORDS]
+    filters.update(ub.make_filter_dict(words))
+    return filters
 
 
 
@@ -131,58 +158,19 @@ class Quiz(commands.Cog):
             return
 
         if message.content.startswith("/bqdata"):
-            filters = self.state.bq_filter_dict
             bqFilterWords = message.content.split()[1:]
 
             if bqFilterWords:
-                removeWords = [
-                    "タイプ",
-                    "特性",
-                    "出身地",
-                    "初登場世代",
-                    "進化段階",
-                    "HP",
-                    "こうげき",
-                    "ぼうぎょ",
-                    "とくこう",
-                    "とくぼう",
-                    "すばやさ",
-                    "合計",
-                ]
-
-                if "リセット" in bqFilterWords:
-                    # 既定の条件（config.json）へ戻す。既定値そのものを書き換えないよう複製する
-                    filters = self.state.bq_filter_dict = copy.deepcopy(
-                        cfg.DEFAULT_FILTER_DICT)
-                    bqFilterWords.remove("リセット")
-
-                if "種族値" in bqFilterWords:
-                    for key in [
-                        "HP",
-                        "こうげき",
-                        "ぼうぎょ",
-                        "とくこう",
-                        "とくぼう",
-                        "すばやさ",
-                        "合計",
-                    ]:
-                        filters.pop(key, None)
-                    bqFilterWords.remove("種族値")
-
-                for word in bqFilterWords:
-                    if word in removeWords:  # 絞り込みをリセット
-                        # 設定されていない項目を指定されても落ちないようにする
-                        filters.pop(word, None)
-
-                bqFilterWords = [x for x in bqFilterWords if x not in removeWords]
-
-                # インデックスの要素が更新されていない項目はそのまま
-                filters.update(ub.make_filter_dict(bqFilterWords))
+                # 既定の条件（config.json）へ戻す。既定値そのものを書き換えないよう複製する
+                update_filter(self.state.bq_filter_dict, bqFilterWords,
+                              cfg.DEFAULT_FILTER_DICT)
                 response = "種族値クイズの出題条件が変更されました"
                 ub.output_log("出題条件が更新されました")
 
             else:
                 response = "現在の種族値クイズの出題条件は以下の通りです"
+
+            filters = self.state.bq_filter_dict
 
             bqFilteredEmbed = discord.Embed(
                 title="種族値クイズの出題条件",
@@ -201,23 +189,46 @@ class Quiz(commands.Cog):
         elif message.content.startswith("/crydata"):
             words = message.content.split()[1:]
             response = "現在の鳴き声クイズの出題条件は以下の通りです"
-            if words:
-                mode = CRY_MODE_ALIASES.get(words[0])
-                if mode is None:
-                    response = "使い方: `/crydata デフォルト|BW以前|両方`"
-                else:
-                    self.state.cry_mode = mode
-                    response = "鳴き声クイズの出題条件が変更されました"
-                    ub.output_log(f"鳴き声の出題条件が{self.state.cry_mode}になりました")
 
+            if "リセット" in words:
+                # モードも絞り込みも既定に戻す
+                self.state.cry_mode = "latest"
+                self.state.cry_filter_dict.clear()
+                words.remove("リセット")
+                response = "鳴き声クイズの出題条件を既定に戻しました"
+
+            mode = None
+            rest = []
+            for word in words:
+                if word in CRY_MODE_ALIASES:
+                    mode = CRY_MODE_ALIASES[word]
+                else:
+                    rest.append(word)
+            if mode is not None:
+                self.state.cry_mode = mode
+                response = "鳴き声クイズの出題条件が変更されました"
+                ub.output_log(f"鳴き声の出題条件が{self.state.cry_mode}になりました")
+            if rest:
+                update_filter(self.state.cry_filter_dict, rest, {})
+                response = "鳴き声クイズの出題条件が変更されました"
+                ub.output_log("鳴き声の出題条件が更新されました")
+
+            filters = self.state.cry_filter_dict
+            lines = [
+                f"現在: **{CRY_MODE_LABELS[self.state.cry_mode]}**",
+                "使い方: `/crydata デフォルト|BW以前|両方`、"
+                "`/crydata 地方 カントー`、`/crydata 世代 1`"
+                "（リセットで既定）",
+            ]
+            if filters:
+                for key, values in filters.items():
+                    lines.append(f"{key}: {'、'.join(values)}")
+            else:
+                lines.append("絞り込み: なし（全部）")
             cryEmbed = discord.Embed(
                 title="鳴き声クイズの出題条件",
                 color=0x9013FE,
-                description=(
-                    f"現在: **{CRY_MODE_LABELS[self.state.cry_mode]}**\n"
-                    "使い方: `/crydata デフォルト|BW以前|両方`"
-                    "（リセットでデフォルト）"
-                ),
+                description="\n".join(lines),
             )
             await message.channel.send(response, embed=cryEmbed)
 

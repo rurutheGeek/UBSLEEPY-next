@@ -308,6 +308,56 @@ def test_cry_quiz_can_use_the_old_cry(monkeypatch, tmp_path):
     assert session_module.cry_from_message(session.qm) == ('リザードン', 'legacy')
 
 
+class FilterPokedex:
+    def __init__(self, records):
+        self.records = records
+
+    def filter(self, filter_dict):
+        regions = filter_dict.get('出身地')
+        if not regions:
+            return self.records
+        return [p for p in self.records if p.region in regions]
+
+
+def test_cry_quiz_respects_the_region_filter(monkeypatch, tmp_path):
+    cry_dir = _cry_project(tmp_path, ('latest',))
+    (cry_dir / 'latest' / '0888.ogg').write_bytes(b'ogg')
+    monkeypatch.setattr(session_module, 'CRY_DIRECTORY', cry_dir)
+
+    kanto = _pokemon()
+    galar = _pokemon(ndex_number='0888', name='ザシアン', species_name='ザシアン',
+                     region='ガラル', eng='Zacian')
+    monkeypatch.setattr(session_module, 'get_pokedex',
+                        lambda: FilterPokedex([kanto, galar]))
+
+    state = quiz_module.QuizState()
+    state.cry_filter_dict = {'出身地': ['ガラル']}
+    session = quiz_module.QuizSession(FakeBot(), 'cryq', state)
+    asyncio.run(session.post(FakeChannel()))
+
+    assert session_module.cry_from_message(session.qm) == ('ザシアン', 'latest')
+
+
+def test_crydata_sets_conditions_and_resets(monkeypatch):
+    cog = quiz_module.Quiz(FakeBot())
+    channel = FakeChannel()
+    monkeypatch.setattr(quiz_module.ub, 'output_log', lambda text: None)
+    monkeypatch.setattr(
+        quiz_module.ub, 'make_filter_dict',
+        lambda words: {'出身地': ['カントー']} if 'カントー' in words else {})
+
+    message = FakeMessage(author=FakeUser(), content='/crydata 地方 カントー',
+                          channel=channel)
+    asyncio.run(cog.on_message(message))
+    assert cog.state.cry_filter_dict == {'出身地': ['カントー']}
+
+    message = FakeMessage(author=FakeUser(), content='/crydata リセット',
+                          channel=channel)
+    asyncio.run(cog.on_message(message))
+    assert cog.state.cry_filter_dict == {}
+    assert cog.state.cry_mode == 'latest'
+
+
 class FakeQM:
     def __init__(self):
         self.edits = []
