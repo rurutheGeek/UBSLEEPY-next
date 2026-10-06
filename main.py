@@ -53,6 +53,8 @@ class UBSleepy(commands.Bot):
         intents.members = True
         intents.guild_messages = True
         intents.message_content = True
+        # 鳴き声クイズのボイス再生（入っているVCの取得・退出）に使う
+        intents.voice_states = True
         super().__init__(
             command_prefix=commands.when_mentioned,
             intents=intents,

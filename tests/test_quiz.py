@@ -358,6 +358,187 @@ def test_crydata_sets_conditions_and_resets(monkeypatch):
     assert cog.state.cry_mode == 'latest'
 
 
+class FakeVoiceClient:
+    def __init__(self, channel):
+        self.channel = channel
+        self.played = []
+
+    def play(self, source):
+        self.played.append(source)
+
+
+class FakeVoiceChannel(discord.VoiceChannel):
+    """isinstance を通しつつ、テスト用の属性を足せるようにする。"""
+
+    def __init__(self, guild=None, name='vc'):
+        self.id = 2
+        self.name = name
+        self.guild = guild
+        self.sent = []
+        self.messages = []
+
+    async def connect(self, **kwargs):
+        self.guild.voice_client = FakeVoiceClient(self)
+        return self.guild.voice_client
+
+    async def send(self, *args, **kwargs):
+        self.sent.append((args, kwargs))
+        return FakeMessage(author=None, channel=self)
+
+    def history(self, limit=10):
+        async def _history():
+            for message in self.messages:
+                yield message
+
+        return _history()
+
+
+class FakeVoiceGuild:
+    def __init__(self):
+        self.voice_client = None
+
+
+def test_cry_quiz_plays_in_the_voice_channel(monkeypatch, tmp_path):
+    session = _cry_session(monkeypatch, tmp_path, ('latest',))
+    monkeypatch.setattr(session_module, '_audio_source', lambda path: 'audio')
+    channel = FakeChannel()
+    guild = FakeVoiceGuild()
+
+    asyncio.run(session.post(channel, voiceChannel=FakeVoiceChannel(guild)))
+
+    assert guild.voice_client is not None
+    assert guild.voice_client.played == ['audio']  # 鳴き声を再生した
+    assert 'ボイスチャンネルで再生します' in channel.sent[0][1]['embed'].description
+
+
+def test_the_cry_quiz_has_a_replay_button(monkeypatch, tmp_path):
+    session = _cry_session(monkeypatch, tmp_path, ('latest',))
+    channel = FakeChannel()
+
+    asyncio.run(session.post(channel))
+
+    view = channel.sent[0][1]['view']
+    assert view is not None
+    assert any(getattr(child, 'custom_id', None) == session_module.CRY_REPLAY_BUTTON_ID
+               for child in view.children)
+
+
+class FakeButtonResponse:
+    def __init__(self):
+        self.messages = []
+
+    async def send_message(self, content=None, **kwargs):
+        self.messages.append((content, kwargs))
+
+
+class FakeButtonInteraction:
+    def __init__(self, message, guild):
+        self.data = {'component_type': 2,
+                     'custom_id': session_module.CRY_REPLAY_BUTTON_ID}
+        self.message = message
+        self.guild = guild
+        self.response = FakeButtonResponse()
+
+
+def _cry_message():
+    filename = session_module.cry_filename('リザードン', 'latest', 'abc123')
+    attachment = type('A', (), {'filename': filename})()
+    return FakeMessage(author=None, attachments=[attachment])
+
+
+def test_the_replay_button_plays_again(monkeypatch):
+    monkeypatch.setattr(session_module, '_audio_source', lambda path: 'audio')
+    guild = FakeVoiceGuild()
+    guild.voice_client = FakeVoiceClient(FakeVoiceChannel(guild))
+    interaction = FakeButtonInteraction(_cry_message(), guild)
+    cog = quiz_module.Quiz(FakeBot())
+
+    asyncio.run(cog.on_interaction(interaction))
+
+    assert guild.voice_client.played == ['audio']  # もう一度再生した
+    assert interaction.response.messages[0][0] == 'もう一度再生しました'
+
+
+def test_the_replay_button_without_a_voice_client_explains():
+    interaction = FakeButtonInteraction(_cry_message(), FakeVoiceGuild())
+    cog = quiz_module.Quiz(FakeBot())
+
+    asyncio.run(cog.on_interaction(interaction))
+
+    assert '添付' in interaction.response.messages[0][0]
+
+
+def test_voice_channel_for_detects_a_voice_chat():
+    channel = FakeVoiceChannel()
+    assert quiz_module.voice_channel_for(channel) is channel
+    assert quiz_module.voice_channel_for(FakeChannel()) is None
+
+
+def test_a_name_in_the_voice_text_chat_answers_the_cry_quiz(monkeypatch):
+    channel = FakeVoiceChannel()
+    embed = discord.Embed()
+    embed.set_footer(text='No.26 ポケモンクイズ - cryq')
+    channel.messages.append(FakeMessage(author=FakeUser(), embeds=[embed], channel=channel))
+    message = FakeMessage(author=FakeUser(), content='リザードン', channel=channel)
+
+    sessions = []
+
+    class FakeSession:
+        def __init__(self, bot, name, state):
+            self.name = name
+            self.responses = []
+            sessions.append(self)
+
+        async def try_response(self, response):
+            self.responses.append(response)
+
+    monkeypatch.setattr(quiz_module, 'QuizSession', FakeSession)
+    cog = quiz_module.Quiz(FakeBot())
+
+    asyncio.run(cog.on_message(message))
+
+    assert [session.name for session in sessions] == ['cryq']
+    assert sessions[0].responses == [message]
+
+
+class FakeLeaveClient:
+    def __init__(self):
+        self.channel = type('C', (), {'name': 'vc', 'members': []})()
+        self.disconnected = False
+
+    async def disconnect(self):
+        self.disconnected = True
+
+
+class FakeLeaveGuild:
+    def __init__(self):
+        self.voice_client = FakeLeaveClient()
+
+
+class FakeLeaveMember:
+    def __init__(self, guild):
+        self.guild = guild
+
+
+def test_the_bot_leaves_an_empty_voice_channel():
+    guild = FakeLeaveGuild()
+    cog = quiz_module.Quiz(FakeBot())
+
+    asyncio.run(cog.on_voice_state_update(FakeLeaveMember(guild), None, None))
+
+    assert guild.voice_client.disconnected
+
+
+def test_the_bot_stays_while_someone_is_in_the_voice_channel():
+    guild = FakeLeaveGuild()
+    guild.voice_client.channel.members = [type('M', (), {'bot': False})()]
+    cog = quiz_module.Quiz(FakeBot())
+
+    asyncio.run(cog.on_voice_state_update(FakeLeaveMember(guild), None, None))
+
+    assert not guild.voice_client.disconnected
+
+
 class FakeQM:
     def __init__(self):
         self.edits = []
