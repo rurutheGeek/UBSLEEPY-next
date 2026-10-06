@@ -45,6 +45,16 @@ CREATE TABLE IF NOT EXISTS guild_setting (
     value BIGINT NOT NULL,
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     PRIMARY KEY (guild_id, setting_key)
+);
+CREATE TABLE IF NOT EXISTS quiz_log (
+    id BIGSERIAL PRIMARY KEY,
+    guild_id BIGINT NOT NULL,
+    quiz_name TEXT NOT NULL,
+    at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    judge TEXT,
+    question TEXT,
+    answer_input TEXT,
+    recognized BOOLEAN
 )
 """
 
@@ -235,6 +245,16 @@ class PostgresSaveStore:
             (guild_id, key, value),
         )
 
+    def add_quiz_log(self, guild_id: int, quiz_name: str, judge: str,
+                     question: str, answer_input: str, recognized: bool) -> None:
+        """クイズの判定を1行残す。"""
+        self._connection_or_connect().execute(
+            "INSERT INTO quiz_log "
+            "(guild_id, quiz_name, judge, question, answer_input, recognized) "
+            "VALUES (%s, %s, %s, %s, %s, %s)",
+            (guild_id, quiz_name, judge, question, answer_input, recognized),
+        )
+
     def close(self) -> None:
         if self._connection is not None:
             self._connection.close()
@@ -414,6 +434,44 @@ def set_guild_setting(guild_id, key: str, value: int) -> bool:
         logger.error(f"ギルド設定の保存に失敗しました\n{error}")
         reset_store()
         raise SaveError("ギルド設定の保存に失敗しました") from error
+
+
+def quiz_log_csv(csv_path, quiz_name, judge, question, answer_input, recognized):
+    """従来のCSVログ（DBが使えないとき。開発専用）。"""
+    path = Path(csv_path)
+    if path.exists():
+        frame = pd.read_csv(path)
+    else:
+        frame = pd.DataFrame(columns=["正誤判定", "内容", "解答", "入力認識可否"])
+    row = pd.DataFrame(
+        {
+            "正誤判定": judge,
+            "内容": question,
+            "解答": answer_input,
+            "入力認識可否": recognized,
+        },
+        index=[0],
+    )
+    frame = pd.concat([row, frame]).reset_index(drop=True)
+    frame.to_csv(path, mode="w", header=True, index=False)
+
+
+def add_quiz_log(guild_id, quiz_name, judge, question, answer_input, recognized,
+                 csv_path=None):
+    """クイズの判定ログを残す。DBが無ければCSV（開発用）。
+
+    ログは補助なので、失敗してもクイズは止めない（エラーログだけ残す）。
+    """
+    store = get_store()
+    if store is None:
+        quiz_log_csv(csv_path, quiz_name, judge, question, answer_input, recognized)
+        return
+    try:
+        store.add_quiz_log(int(guild_id), quiz_name, judge, question, answer_input,
+                           recognized)
+    except Exception as error:
+        logger.error(f"クイズログの保存に失敗しました\n{error}")
+        reset_store()
 
 
 def report(

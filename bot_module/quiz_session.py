@@ -7,7 +7,6 @@ cogs/quiz.py の Cog が作り、Discordへの送受信はこのクラスが行�
 """
 import copy
 import hashlib
-import os
 from pathlib import Path
 import random
 import re
@@ -15,11 +14,11 @@ import secrets
 
 import discord
 import jaconv
-import pandas as pd
 
 import bot_module.config as cfg
 from bot_module import func as ub
 from bot_module.pokedex import get_pokedex
+import bot_module.save as save
 from bot_module.save import SaveError
 
 # 鳴き声クイズの音源。tools/fetch_cries.py が置き、クイズはローカル参照だけする。
@@ -220,15 +219,20 @@ class QuizSession:
                 return
             qDatas, cryKind = picked
             quizEmbed.title = "鳴き声クイズ"
-            quizEmbed.description = "鳴き声を聞いて ポケモン名を答えよう"
+            if voiceChannel is not None:
+                quizEmbed.description = (
+                    "鳴き声をボイスチャンネルで流します。聞いてポケモン名を答えよう"
+                    "\n（回答はこのチャットに名前を書いてね）")
+                quizView = replay_button_view()
+            else:
+                quizEmbed.description = (
+                    "添付の鳴き声を聞いて ポケモン名を答えよう"
+                    "\n（回答はこのメッセージへのリプライで）")
             quizEmbed.set_thumbnail(url=self.__imageLink())  # 正解までDecamark
             cryPath = CRY_DIRECTORY / cryKind / f"{qDatas.ndex_number}.ogg"
             cryNonce = secrets.token_hex(CRY_NONCE_BYTES)
             quizFile = discord.File(
                 str(cryPath), filename=cry_filename(qDatas.name, cryKind, cryNonce))
-            quizView = replay_button_view()
-            if voiceChannel is not None:
-                quizEmbed.description += "\n（ボイスチャンネルで再生します）"
 
         else:
             ub.output_warning(f"不明なクイズ識別子(post): {self.quizName}")
@@ -740,22 +744,10 @@ class QuizSession:
         return link
 
     def __log(self, judge, exAns):
+        # 判定ログはDB（ubsleepy.quiz_log）へ。DBが無い手元はCSV（開発用）
         logPath = f"log/{self.quizName}log.csv"
         ub.output_log(f"{self.quizName}: log生成を実行\n {logPath}")
-
-        if os.path.exists(logPath):
-            log_df = pd.read_csv(logPath)
-        else:
-            log_df = pd.DataFrame(columns=["正誤判定", "内容", "解答", "入力認識可否"])
-
-        nRow = pd.DataFrame(
-            {
-                "正誤判定": judge,
-                "内容": self.examText,
-                "解答": self.ansText,
-                "入力認識可否": judge is not None,
-            },
-            index=[0],
-        )
-        log_df = pd.concat([nRow, log_df]).reset_index(drop=True)
-        log_df.to_csv(logPath, mode="w", header=True, index=False)
+        guild_id = getattr(getattr(self.qm, "guild", None), "id", 0) or 0
+        save.add_quiz_log(
+            guild_id, self.quizName, judge, self.examText, self.ansText,
+            judge is not None, csv_path=logPath)
