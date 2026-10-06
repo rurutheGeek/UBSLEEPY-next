@@ -27,11 +27,11 @@ from bot_module.save import SaveError
 CRY_DIRECTORY = Path("resource/cry")
 CRY_KINDS = ("latest", "legacy")
 # 開示で「どちらの鳴き声だったか」に使う呼び名
-CRY_LABELS = {"latest": "今", "legacy": "BW以前"}
-# 出題条件（既定はデフォルト＝今の鳴き声。設定は /crydata で変更）
+CRY_LABELS = {"latest": "今", "legacy": "昔"}
+# 出題条件（既定は今の鳴き声。設定は /crydata で変更）
 CRY_MODE_LABELS = {
-    "latest": "デフォルト",
-    "legacy": "BW以前",
+    "latest": "今",
+    "legacy": "昔",
     "mix": "両方",
 }
 # 添付ファイル名は cry-<nonce>-<ハッシュ>.ogg。

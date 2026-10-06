@@ -18,11 +18,14 @@ from bot_module.quiz_session import CRY_MODE_LABELS, QuizSession, QuizState
 from bot_module.save import SaveError
 
 # /crydata の入力ゆれ -> 鳴き声クイズの出題条件（モード）
+# キーは「今／昔／両方」。他の言い方も受け付ける。
 CRY_MODE_ALIASES = {
+    "今": "latest", "いま": "latest", "now": "latest",
     "デフォルト": "latest", "でふぉると": "latest", "default": "latest",
     "あたらしい": "latest", "新しい": "latest", "新": "latest", "latest": "latest",
+    "昔": "legacy", "むかし": "legacy", "old": "legacy",
     "BW以前": "legacy", "BWいぜん": "legacy", "BW": "legacy", "bw": "legacy",
-    "むかし": "legacy", "昔": "legacy", "古い": "legacy", "legacy": "legacy",
+    "古い": "legacy", "legacy": "legacy",
     "両方": "mix", "りょうほう": "mix", "ミックス": "mix", "みっくす": "mix",
     "mix": "mix",
 }
@@ -216,7 +219,7 @@ class Quiz(commands.Cog):
             filters = self.state.cry_filter_dict
             lines = [
                 f"現在: **{CRY_MODE_LABELS[self.state.cry_mode]}**",
-                "使い方: `/crydata デフォルト|BW以前|両方`、"
+                "使い方: `/crydata 今|昔|両方`、"
                 "`/crydata 地方 カントー`、`/crydata 世代 1`"
                 "（リセットで既定）",
             ]
