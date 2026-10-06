@@ -44,6 +44,85 @@ def test_last_daily_date_roundtrip(monkeypatch):
     assert daily.read_last_daily_date(999) == "2026/10/04"
     assert daily.read_last_daily_date(111) is None
 
+class HistoryChannel:
+    def __init__(self, messages):
+        self._messages = messages
+
+    async def history(self, limit=20):
+        for message in self._messages:
+            yield message
+
+
+class HistoryBot:
+    def __init__(self, channel):
+        self.guilds = [type("G", (), {"id": 999, "name": "test-guild"})()]
+        self._channel = channel
+
+    def get_channel(self, channel_id):
+        return self._channel
+
+
+def _bot_message(content):
+    author = type("A", (), {"bot": True})()
+    return type("M", (), {"author": author, "content": content})()
+
+
+def test_daily_catch_up_skips_when_another_bot_posted(monkeypatch):
+    today = datetime.now(JST).strftime("%Y/%m/%d")
+    posted = []
+    saved = []
+
+    async def fake_post(bot, now, channel_id):
+        posted.append(channel_id)
+
+    monkeypatch.setattr(daily, "post_daily", fake_post)
+    monkeypatch.setattr(daily, "save_last_daily_date",
+                        lambda guild_id, day: saved.append(guild_id))
+    monkeypatch.setattr(daily, "read_last_daily_date", lambda guild_id: None)
+    monkeypatch.setattr(daily, "should_post_daily", lambda last, now: True)
+    monkeypatch.setattr(daily.guild_settings, "setting", lambda guild_id, key: 123)
+
+    bot = HistoryBot(HistoryChannel([_bot_message(f"日付が変わりました。 {today} (火)")]))
+    cog = daily.Daily(bot=bot)
+    asyncio.run(cog._post_daily_all_guilds(catch_up=True))
+
+    assert posted == []  # もう1つのBotの投稿を見て投稿しない
+    assert saved == [999]
+
+
+def test_daily_does_not_double_post_when_loop_and_catch_up_overlap(monkeypatch):
+    posted = []
+    stored = {}
+
+    async def fake_post(bot, now, channel_id):
+        posted.append(channel_id)
+        await asyncio.sleep(0.01)
+
+    monkeypatch.setattr(daily, "post_daily", fake_post)
+    monkeypatch.setattr(daily, "read_last_daily_date",
+                        lambda guild_id: stored.get(guild_id))
+
+    def fake_save(guild_id, day):
+        stored[guild_id] = day.strftime("%Y/%m/%d")
+
+    monkeypatch.setattr(daily, "save_last_daily_date", fake_save)
+    monkeypatch.setattr(daily, "should_post_daily",
+                        lambda last, now: last != now.strftime("%Y/%m/%d"))
+    monkeypatch.setattr(daily.guild_settings, "setting", lambda guild_id, key: 123)
+
+    cog = daily.Daily(bot=HistoryBot(HistoryChannel([])))
+
+    async def run():
+        await asyncio.gather(
+            cog._post_daily_all_guilds(),
+            cog._post_daily_all_guilds(catch_up=True),
+        )
+
+    asyncio.run(run())
+
+    assert posted == [123]  # ループとキャッチアップが重なっても1回だけ
+
+
 class FakeResponse:
     def __init__(self):
         self.messages = []

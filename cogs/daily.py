@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 # cogs/daily.py
 """日替わり投稿・ログ投稿・おこづかい・IDくじ。"""
+import asyncio
 import random
 from datetime import datetime, time, timedelta
 from zoneinfo import ZoneInfo
@@ -94,6 +95,8 @@ class Daily(commands.Cog):
 
     def __init__(self, bot):
         self.bot = bot
+        # 5時のループと起動時のキャッチアップが重なっても二重投稿しない
+        self._daily_lock = asyncio.Lock()
 
     @tasks.loop(time=time(hour=5, minute=0, tzinfo=ZoneInfo("Asia/Tokyo")))
     async def daily_bonus(self):
@@ -108,8 +111,9 @@ class Daily(commands.Cog):
         last_date = read_last_daily_date(guild.id)
         if not should_post_daily(last_date, now):
             return
-        if catch_up and last_date is None and await self.__posted_today(channel, now):
-            # 状態を入れる前の投稿を確認できた場合は二重投稿しない
+        if catch_up and await self.__posted_today(channel, now):
+            # 投稿済みなら状態だけ入れる（このBotの投稿でも、もう1つのBotの
+            # 投稿でも、今日ぶんが出ていれば二重投稿しない）
             save_last_daily_date(guild.id, now)
             ub.output_log(f"本日の時報は投稿済みでした: {guild.name}")
             return
@@ -124,14 +128,15 @@ class Daily(commands.Cog):
         save_last_daily_date(guild.id, now)
 
     async def _post_daily_all_guilds(self, catch_up: bool = False):
-        now = datetime.now(ZoneInfo("Asia/Tokyo"))
-        for guild in list(self.bot.guilds):
-            try:
-                await self._post_daily_guild(guild, now, catch_up)
-            except Exception as e:
-                # 1ギルドの失敗でループ全体を止めない
-                ub.output_error(
-                    f"日替わり投稿に失敗しました: {guild.name}（{guild.id}）\n{e}")
+        async with self._daily_lock:
+            now = datetime.now(ZoneInfo("Asia/Tokyo"))
+            for guild in list(self.bot.guilds):
+                try:
+                    await self._post_daily_guild(guild, now, catch_up)
+                except Exception as e:
+                    # 1ギルドの失敗でループ全体を止めない
+                    ub.output_error(
+                        f"日替わり投稿に失敗しました: {guild.name}（{guild.id}）\n{e}")
 
     @commands.Cog.listener()
     async def on_ready(self):
@@ -144,12 +149,14 @@ class Daily(commands.Cog):
         ub.output_log("botが起動しました")
 
     async def __posted_today(self, dairyChannel, now: datetime) -> bool:
-        """日付入りの投稿が今日ぶんチャンネルにあるか確認する（状態ファイル導入前の互換）。"""
-        async for message in dairyChannel.history(limit=10):
-            if (
-                message.author == self.bot.user
-                and now.strftime("%Y/%m/%d") in message.content
-            ):
+        """今日ぶんの日付入り投稿がチャンネルにあるか確認する。
+
+        テスト配備ではもう1つのBotが投稿していることもあるので、投稿者は問わない
+        （Botの投稿だけを見る）。
+        """
+        async for message in dairyChannel.history(limit=20):
+            author = getattr(message.author, "bot", False)
+            if author and now.strftime("%Y/%m/%d") in (message.content or ""):
                 return True
         return False
 
