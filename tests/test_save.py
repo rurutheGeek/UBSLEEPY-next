@@ -68,6 +68,39 @@ def test_postgres_store_ticket_starts_at_one():
     assert insert[1] == (save.SAVE_SCOPE, 123, "クジびきけん", 0, -1)  # 1-1
 
 
+def test_quiz_log_store_inserts():
+    store, connection = _fake_store()
+
+    store.add_quiz_log(999, "cryq", "正答", "リザードン", "リザードン", True)
+
+    insert = [c for c in connection.calls if "INSERT INTO quiz_log" in c[0]][0]
+    assert insert[1] == (999, "cryq", "正答", "リザードン", "リザードン", True)
+
+
+def test_quiz_log_falls_back_to_csv(monkeypatch, tmp_path):
+    monkeypatch.setattr(save, "get_store", lambda: None)
+    path = tmp_path / "cryqlog.csv"
+
+    save.add_quiz_log(999, "cryq", "正答", "リザードン", "リザードン", True,
+                      csv_path=path)
+
+    frame = pd.read_csv(path)
+    assert frame.loc[0, "正誤判定"] == "正答"
+    assert frame.loc[0, "内容"] == "リザードン"
+    assert frame.loc[0, "解答"] == "リザードン"
+
+
+def test_quiz_log_failure_does_not_raise(monkeypatch):
+    class BrokenStore:
+        def add_quiz_log(self, *args):
+            raise RuntimeError("接続失敗")
+
+    monkeypatch.setattr(save, "get_store", lambda: BrokenStore())
+    monkeypatch.setattr(save, "reset_store", lambda: None)
+
+    save.add_quiz_log(999, "cryq", "正答", "x", "y", True)  # 例外にならない
+
+
 def test_guild_setting_store_upserts():
     store, connection = _fake_store()
 

@@ -408,19 +408,32 @@ def test_cry_quiz_plays_in_the_voice_channel(monkeypatch, tmp_path):
 
     assert guild.voice_client is not None
     assert guild.voice_client.played == ['audio']  # 鳴き声を再生した
-    assert 'ボイスチャンネルで再生します' in channel.sent[0][1]['embed'].description
+    assert 'ボイスチャンネルで流します' in channel.sent[0][1]['embed'].description
 
 
-def test_the_cry_quiz_has_a_replay_button(monkeypatch, tmp_path):
+def test_the_cry_quiz_has_a_replay_button_in_a_voice_chat(monkeypatch, tmp_path):
     session = _cry_session(monkeypatch, tmp_path, ('latest',))
+    monkeypatch.setattr(session_module, '_audio_source', lambda path: 'audio')
     channel = FakeChannel()
+    guild = FakeVoiceGuild()
 
-    asyncio.run(session.post(channel))
+    asyncio.run(session.post(channel, voiceChannel=FakeVoiceChannel(guild)))
 
     view = channel.sent[0][1]['view']
     assert view is not None
     assert any(getattr(child, 'custom_id', None) == session_module.CRY_REPLAY_BUTTON_ID
                for child in view.children)
+    assert 'ボイスチャンネルで流します' in channel.sent[0][1]['embed'].description
+
+
+def test_the_cry_quiz_in_a_text_channel_has_no_replay_button(monkeypatch, tmp_path):
+    session = _cry_session(monkeypatch, tmp_path, ('latest',))
+    channel = FakeChannel()
+
+    asyncio.run(session.post(channel))
+
+    assert channel.sent[0][1]['view'] is None  # テキストでは再生ボタンを付けない
+    assert '添付の鳴き声' in channel.sent[0][1]['embed'].description
 
 
 class FakeButtonResponse:
