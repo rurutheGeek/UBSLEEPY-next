@@ -75,6 +75,7 @@ class Quiz(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
         self.state = QuizState()
+        self._replay_counts = {}  # 鳴き声の再生ボタン: メッセージID -> 回数
 
     @commands.Cog.listener()
     async def on_ready(self):
@@ -336,8 +337,14 @@ class Quiz(commands.Cog):
             return
         path = CRY_DIRECTORY / kind / f"{found[0].ndex_number}.ogg"
         if play_cry(voice_client, path):
+            # 連打しても同じ文が積み上がらないよう、回数を1行で出す
+            message_id = getattr(interaction.message, "id", 0)
+            count = self._replay_counts.get(message_id, 0) + 1
+            self._replay_counts[message_id] = count
+            for old in list(self._replay_counts)[:-50]:
+                self._replay_counts.pop(old, None)
             await interaction.response.send_message(
-                "もう一度再生しました", ephemeral=True)
+                f"再生{count}回目", ephemeral=True)
         else:
             await interaction.response.send_message(
                 "再生できませんでした", ephemeral=True)

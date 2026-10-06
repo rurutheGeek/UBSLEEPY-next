@@ -469,7 +469,21 @@ def test_the_replay_button_plays_again(monkeypatch):
     asyncio.run(cog.on_interaction(interaction))
 
     assert guild.voice_client.played == ['audio']  # もう一度再生した
-    assert interaction.response.messages[0][0] == 'もう一度再生しました'
+    assert interaction.response.messages[0][0] == '再生1回目'
+
+
+def test_the_replay_button_counts_the_plays(monkeypatch):
+    monkeypatch.setattr(session_module, '_audio_source', lambda path: 'audio')
+    guild = FakeVoiceGuild()
+    guild.voice_client = FakeVoiceClient(FakeVoiceChannel(guild))
+    interaction = FakeButtonInteraction(_cry_message(), guild)
+    cog = quiz_module.Quiz(FakeBot())
+
+    asyncio.run(cog.on_interaction(interaction))
+    asyncio.run(cog.on_interaction(interaction))
+
+    assert [message[0] for message in interaction.response.messages] == [
+        '再生1回目', '再生2回目']  # 連打しても回数の1行だけ
 
 
 def test_the_replay_button_without_a_voice_client_explains():
