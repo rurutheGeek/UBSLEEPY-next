@@ -10,15 +10,26 @@ from discord.ext import commands
 import bot_module.config as cfg
 from bot_module.command_scope import scoped
 
+# 出題条件で使える言葉（/bqdata・/crydata 共通）
+CONDITION_WORDS = (
+    'タイプ（みず など）／特性（もうか など）／出身地（カントー など）／'
+    '初登場世代（1〜9）／進化段階（最終進化 など）／種族値（HP50 など）'
+)
+
 # スラッシュコマンドではない、チャンネルへそのまま送るコマンド。
 # （名前, 使い方, 説明）
 TEXT_COMMANDS = (
     ('bqdata', '/bqdata [条件...]',
-     '種族値クイズの出題条件の表示・変更（例: `/bqdata リセット`、`/bqdata タイプ みず`）'),
+     '種族値クイズの出題条件の表示・変更。'
+     f'条件: {CONDITION_WORDS}。'
+     '条件名だけ書くとその条件を解除、`リセット` で既定に戻ります'
+     '（例: `/bqdata タイプ みず`、`/bqdata リセット`）'),
     ('crydata', '/crydata [デフォルト|BW以前|両方] [条件...]',
-     '鳴き声クイズの出題条件の表示・変更。モードのほか、地方・世代などで絞り込めます'
-     '（例: `/crydata BW以前`、`/crydata 地方 カントー`、`/crydata 世代 1`、'
-     '`/crydata リセット`）'),
+     '鳴き声クイズの出題条件の表示・変更。'
+     'モード（デフォルト／BW以前／両方）のほか、'
+     f'条件: {CONDITION_WORDS}。'
+     '条件名だけ書くとその条件を解除、`リセット` でモードも条件も既定に戻ります'
+     '（例: `/crydata 地方 カントー`、`/crydata 世代 1`、`/crydata BW以前`）'),
 )
 
 
@@ -84,15 +95,16 @@ class Help(commands.Cog):
             '`/help コマンド名` で1つのコマンドの詳細を表示します。',
             'お問い合わせ: https://github.com/rurutheGeek/UBSLEEPY-next/issues',
             '',
+            '**テキストコマンド**（チャンネルにそのまま送信。`/help crydata` で詳細）',
         ]
+        for name, usage, description in TEXT_COMMANDS:
+            lines.append(f'`{usage}` — {description}')
+        lines.append('')
+        lines.append('**スラッシュコマンド**')
         for command in self._commands():
             lines.append(f'**/{command.name}** — {command.description}')
             for sub in getattr(command, 'commands', []):
                 lines.append(f'　`/{command.name} {sub.name}` — {sub.description}')
-        lines.append('')
-        lines.append('**テキストコマンド**（チャンネルにそのまま送信）')
-        for name, usage, description in TEXT_COMMANDS:
-            lines.append(f'`{usage}` — {description}')
         body = '\n'.join(lines)
         if len(body) > 4000:
             body = body[:3999] + '…'
