@@ -14,8 +14,19 @@ from bot_module.command_scope import scoped
 import bot_module.func as ub
 import bot_module.guild_settings as guild_settings
 from bot_module.pokedex import get_pokedex
-from bot_module.quiz_session import QuizSession, QuizState
+from bot_module.quiz_session import CRY_MODE_LABELS, QuizSession, QuizState
 from bot_module.save import SaveError
+
+# /crydata の入力ゆれ -> 鳴き声クイズの出題条件
+CRY_MODE_ALIASES = {
+    "デフォルト": "latest", "でふぉると": "latest", "default": "latest",
+    "あたらしい": "latest", "新しい": "latest", "新": "latest", "latest": "latest",
+    "リセット": "latest", "reset": "latest",
+    "BW以前": "legacy", "BWいぜん": "legacy", "BW": "legacy", "bw": "legacy",
+    "むかし": "legacy", "昔": "legacy", "古い": "legacy", "legacy": "legacy",
+    "両方": "mix", "りょうほう": "mix", "ミックス": "mix", "みっくす": "mix",
+    "mix": "mix",
+}
 
 
 
@@ -185,6 +196,30 @@ class Quiz(commands.Cog):
 
             ub.output_log("出題条件を表示します")
             await message.channel.send(response, embed=bqFilteredEmbed)
+
+        # 鳴き声クイズの出題条件（あたらしい / BWまで / ミックス）
+        elif message.content.startswith("/crydata"):
+            words = message.content.split()[1:]
+            response = "現在の鳴き声クイズの出題条件は以下の通りです"
+            if words:
+                mode = CRY_MODE_ALIASES.get(words[0])
+                if mode is None:
+                    response = "使い方: `/crydata デフォルト|BW以前|両方`"
+                else:
+                    self.state.cry_mode = mode
+                    response = "鳴き声クイズの出題条件が変更されました"
+                    ub.output_log(f"鳴き声の出題条件が{self.state.cry_mode}になりました")
+
+            cryEmbed = discord.Embed(
+                title="鳴き声クイズの出題条件",
+                color=0x9013FE,
+                description=(
+                    f"現在: **{CRY_MODE_LABELS[self.state.cry_mode]}**\n"
+                    "使い方: `/crydata デフォルト|BW以前|両方`"
+                    "（リセットでデフォルト）"
+                ),
+            )
+            await message.channel.send(response, embed=cryEmbed)
 
         # bot自身へのリプライ(reference)に反応
         elif message.reference is not None:

@@ -507,6 +507,14 @@ class Harness:
         )
         await self.quiz_cog.on_message(message)
 
+    async def cmd_crydata(self, args):
+        message = FakeMessage(
+            author=FakeUser(),
+            content="/crydata " + " ".join(args),
+            channel=self.channel,
+        )
+        await self.quiz_cog.on_message(message)
+
     async def cmd_help(self, args):
         print(HELP)
 
@@ -555,6 +563,7 @@ HELP = """コマンド一覧:
   pocketmoney                   おこづかい
   bmode [ON|OFF]                連続出題モード
   bqdata [条件...]              出題条件の表示・変更
+  crydata [デフォルト|BW以前|両方]  鳴き声の出題条件の表示・変更
   help / quit
 """
 
