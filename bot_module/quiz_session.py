@@ -276,14 +276,14 @@ class QuizSession:
                 return
             quizEmbed.title = "イントロクイズ"
             if voiceChannel is not None:
-                quizEmbed.description = (
-                    "イントロをボイスチャンネルで流します。"
-                    "作品の略称＋戦う相手で答えよう（例: `BWシロナ`）")
+                quizEmbed.description = "イントロをボイスチャンネルで流します。"
                 quizView = replay_button_view()
             else:
-                quizEmbed.description = (
-                    "添付のイントロを聞いて 作品の略称＋戦う相手で答えよう"
-                    "（例: `BWシロナ`）")
+                quizEmbed.description = "添付のイントロを聞いて、"
+            quizEmbed.description += (
+                "だれ（何）との戦闘曲か 作品の略称をつけて答えよう\n"
+                "例: `BWシロナ` `DP野生` `SV四天王` `剣盾ジムリーダー`\n"
+                f"ヒント: {intro.INTRO_HINT_WORDS}　あきらめる: `ギブ`")
             voicePath = track.path
             quizFile = discord.File(
                 str(voicePath),
@@ -411,7 +411,10 @@ class QuizSession:
         ub.output_log(f"{self.quizName}: ギブアップを実行")
         if isinstance(self.rm, discord.Message):
             await self.rm.add_reaction("😅")
-            await self.rm.reply(f"答えは{self.ansList[0]}でした")
+            answer = self.ansList[0]
+            if self.quizName == "introq" and self.ansZero.work:
+                answer += f"（{self.ansZero.work}）"  # 曲名だけでは作品が分からない
+            await self.rm.reply(f"答えは{answer}でした")
         await self.__disclose(False)
 
     async def __judge(self):
@@ -469,9 +472,12 @@ class QuizSession:
                         "ほかの作品にも ある曲だロ。作品の略称もつけて答えてね"
                         "（`略称＋相手` のかたち。例: `BWシロナ`）")
                 elif introVerdict == intro.AMBIGUOUS_SONG:
+                    titles = "／".join(
+                        f"`{title}`" for title in
+                        intro.candidates(self.track, self.ansText))
                     await self.rm.reply(
-                        "その相手の曲は いくつかあるロ。`決戦`・`チャンピオン`・"
-                        "地方名なども つけて答えてね（例: `BW決戦N`）")
+                        f"その相手の曲は いくつかあるロ（{titles}）。"
+                        "どれか分かるように答えてね（`決戦`・地方名などをつける）")
                 else:
                     await self.rm.reply(f"{self.ansText} は曲リストにありません")
         elif (
@@ -607,15 +613,15 @@ class QuizSession:
                 if not stillHints:
                     await self.rm.reply("これ以上 出せるヒントが ないロ")
                     return
-                hintIndex = random.choice(stillHints)
+                hintIndex = stillHints[0]  # 役に立つ順（作品 → 頭文字 → 文字数）
             elif self.ansText in ["作品", "サクヒン"]:
                 hintIndex = "作品"
             elif self.ansText in ["区分", "クブン"]:
                 hintIndex = "区分"
             elif self.ansText in ["文字数", "モジスウ"]:
-                hintIndex = "文字数"
+                hintIndex = "相手の文字数"
             elif self.ansText in ["頭文字", "カシラモジ", "イニシャル"]:
-                hintIndex = "頭文字"
+                hintIndex = "相手の頭文字"
 
         else:
             ub.output_warning(f"不明なクイズ識別子(hint): {self.quizName}")

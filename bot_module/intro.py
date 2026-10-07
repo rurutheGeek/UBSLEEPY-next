@@ -349,20 +349,28 @@ class IntroTrack:
                         keys[combined] = max(strength, keys.get(combined, 0))
         return keys
 
+    @cached_property
+    def opponent(self) -> str:
+        """戦う相手（曲名から取り出した言い方の1つ目）。"""
+        return (answer_cores(self.title) or [self.title])[0]
+
     def hint_value(self, index: str):
-        """ヒントの値（無ければNone）。"""
+        """ヒントの値（無ければNone）。頭文字・文字数は曲名ではなく相手のもの
+        （曲名はたいてい「戦闘！」で始まるので、ヒントにならない）。"""
         if index == "作品":
             return self.work or None
         if index == "区分":
             return self.category or None
-        if index == "文字数":
-            return len(self.title)
-        if index == "頭文字":
-            return self.title[:1] or None
+        if index == "相手の文字数":
+            return len(self.opponent)
+        if index == "相手の頭文字":
+            return self.opponent[:1] or None
         return None
 
 
-INTRO_HINTS = ("作品", "区分", "文字数", "頭文字")
+# 「ヒント」で出す順（役に立つ順）。区分は絞り込みで分かるので、名指しのときだけ出す
+INTRO_HINTS = ("作品", "相手の頭文字", "相手の文字数")
+INTRO_HINT_WORDS = "`作品` `頭文字` `文字数`"
 
 _cache = {"key": None, "tracks": []}
 
@@ -481,6 +489,19 @@ def judge(track, text: str) -> str:
     if any(strength >= mine for strength in rivals):
         return AMBIGUOUS_SONG
     return CORRECT
+
+
+def candidates(track, text: str) -> list:
+    """その答えで当たる曲の曲名（同じ作品のぶん。聞き返すときに見せる）。"""
+    key = canon(text)
+    field = "qualified" if key in track.qualified else "plain"
+    songs = {}
+    for other in load_tracks():
+        if other.work == track.work and key in getattr(other, field):
+            title = songs.get(other.song)
+            if title is None or len(other.title) < len(title):
+                songs[other.song] = other.title
+    return list(songs.values())
 
 
 def intro_hash(track_id: str, nonce: str) -> str:

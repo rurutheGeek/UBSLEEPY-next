@@ -305,7 +305,10 @@ def test_intro_quiz_posts_a_clip(library):
     assert intro.INTRO_FILENAME_RE.match(kwargs['file'].filename)
     assert kwargs['embed'].title == 'イントロクイズ'
     assert kwargs['embed'].footer.text == 'No.26 ポケモンクイズ - introq'
-    assert '添付のイントロ' in kwargs['embed'].description
+    description = kwargs['embed'].description
+    assert '添付のイントロ' in description
+    assert '`DP野生`' in description and '`SV四天王`' in description  # 人名以外の例
+    assert '`作品`' in description and '`ギブ`' in description  # ヒントの種類
     assert kwargs['view'] is None
 
 
@@ -448,6 +451,21 @@ def test_an_answer_without_the_work_asks_for_it(monkeypatch, library):
     assert logs[0][2] is None
 
 
+def test_an_answer_that_fits_several_songs_lists_them(monkeypatch, library):
+    # SVの「野生ポケモン」は Ver. 1.0 と同じ曲。別の曲を足して、決まらない状態にする
+    extra = intro.IntroTrack('x1', '決戦！テーブルシティ', 'スカーレット・バイオレット', 'フィールド')
+    tracks = intro.load_tracks() + [extra]
+    monkeypatch.setattr(intro, 'load_tracks', lambda: tracks)
+    assert intro.candidates(extra, 'SVテーブルシティ') == ['テーブルシティ', '決戦！テーブルシティ']
+
+    monkeypatch.setattr(intro, 'track_from_message', lambda message: extra)
+    _question, answer, reports, _logs = _answer(monkeypatch, 'SVテーブルシティ')
+
+    assert answer.reactions_added == ['❓']
+    assert '`テーブルシティ`／`決戦！テーブルシティ`' in answer.replies[0]
+    assert reports == []
+
+
 def test_another_title_is_wrong(monkeypatch, library):
     question, answer, reports, _logs = _answer(monkeypatch, '1番道路')
 
@@ -468,15 +486,16 @@ def test_an_unknown_title_is_not_counted(monkeypatch, library):
 def test_giving_up_shows_the_answer(monkeypatch, library):
     question, answer, _reports, _logs = _answer(monkeypatch, 'ギブ', track_id='b2')
 
-    assert answer.replies == ['答えはテーブルシティでした']
+    assert answer.replies == ['答えはテーブルシティ（スカーレット・バイオレット）でした']
     assert 'テーブルシティ（スカーレット・バイオレット）' in question.edits[-1]['embed'].description
 
 
 def test_hints_show_the_work_and_the_category(library):
     for word, expected in (('作品', '作品はソード・シールドです'),
                            ('区分', '区分は戦闘です'),
-                           ('文字数', '文字数は9です'),
-                           ('頭文字', '頭文字は戦です')):
+                           # 曲名（戦闘！ジムリーダー）ではなく、相手（ジムリーダー）の字
+                           ('文字数', '相手の文字数は6です'),
+                           ('頭文字', '相手の頭文字はジです')):
         q = _session()
         q.rm, q.qm, q.quizEmbed = FakeRM(), FakeQM(), discord.Embed()
         q.ansZero = intro.load_tracks()[0]
@@ -497,7 +516,9 @@ def test_the_random_hint_runs_out(library):
     for _ in range(len(intro.INTRO_HINTS) + 1):
         asyncio.run(q._QuizSession__hint())
 
-    assert sorted(field.name for field in q.quizEmbed.fields) == sorted(intro.INTRO_HINTS)
+    # 役に立つ順に出す（まず作品）。区分は「ヒント」では出さない
+    assert [field.name for field in q.quizEmbed.fields] == list(intro.INTRO_HINTS)
+    assert q.rm.replies[0] == '作品はソード・シールドです'
     assert q.rm.replies[-1] == 'これ以上 出せるヒントが ないロ'
 
 
