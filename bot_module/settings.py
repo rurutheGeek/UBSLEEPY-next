@@ -85,6 +85,26 @@ class Settings:
     default_filter_dict: dict[str, list[str]]
 
 
+def _with_default_quizzes(quiznames: dict, path: Path, default_path) -> dict:
+    """設定に無いクイズ種別を既定の設定から足す。
+
+    配備先の config.json は状態として残るので、新しいクイズを足したときに
+    手で書き足さなくても選べるようにする（既にある名前・識別子は変えない）。
+    """
+    default = Path(default_path)
+    if default == path or not default.exists():
+        return quiznames
+    try:
+        with default.open(encoding="utf-8-sig") as file:
+            defaults = json.load(file)["SYSTEM_DICT_DICT"]["QUIZNAME_DICT"]
+    except (OSError, ValueError, KeyError, TypeError):
+        return quiznames
+    for name, identifier in defaults.items():
+        if name not in quiznames and identifier not in quiznames.values():
+            quiznames[name] = identifier
+    return quiznames
+
+
 def _require(section: dict, key: str, where: str):
     try:
         return section[key]
@@ -174,7 +194,8 @@ def load_settings(
             memberlist=_require(paths, "MEMBERLIST_PATH", str(path)),
             calllog=_require(paths, "CALLLOG_PATH", str(path)),
         ),
-        quizname_dict=dict(_require(systems, "QUIZNAME_DICT", str(path))),
+        quizname_dict=_with_default_quizzes(
+            dict(_require(systems, "QUIZNAME_DICT", str(path))), path, default_path),
         pokename_prefix_dict=dict(_require(systems, "POKENAME_PREFIX_DICT", str(path))),
         base_stats_dict=dict(_require(systems, "BASE_STATS_DICT", str(path))),
         weak_dict=dict(_require(systems, "WEAK_DICT", str(path))),

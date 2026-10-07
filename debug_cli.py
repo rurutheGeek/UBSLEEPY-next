@@ -519,6 +519,14 @@ class Harness:
         )
         await self.quiz_cog.on_message(message)
 
+    async def cmd_introdata(self, args):
+        message = FakeMessage(
+            author=FakeUser(),
+            content="/introdata " + " ".join(args),
+            channel=self.channel,
+        )
+        await self.quiz_cog.on_message(message)
+
     async def cmd_help(self, args):
         print(HELP)
 
@@ -568,6 +576,7 @@ HELP = """コマンド一覧:
   bmode [ON|OFF]                連続出題モード
   bqdata [条件...]              出題条件の表示・変更
   crydata [今|昔|両方]          鳴き声の出題条件の表示・変更
+  introdata [区分] [作品名]     イントロの出題条件の表示・変更
   help / quit
 """
 

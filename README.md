@@ -32,6 +32,7 @@
 ### コマンド
 - `/help` を追加（引数なしで一覧、コマンド名で詳細。サジェスト付き）
 - クイズは `/q`（種別を選択。旧 `/bq` 相当）・`/quizrate`・`/bmode`
+- イントロクイズ（`/q` の種別。曲の冒頭10秒を聞いて「作品の略称＋戦う相手」で答える。例: `BWシロナ`。略称・言い換え・別名は `resource/intro_works.csv`・`intro_words.csv`・`intro_aliases.csv`）。作品と区分（戦闘／フィールド）で絞り込めます（`/q` の `work`・`category`、または `/introdata`）。音源は `python tools/build_intro_clips.py <アルバムのフォルダ>` で `resource/intro/` に用意します（ffmpegが必要。Gitには入れません）
 - `/search` を追加（タイプ・種族値などの条件検索。未記入でGUI）
 - `/channel` はDB保存に（旧: config.json 書き換え）。`/role` を追加
 - 旧 `/wish`（フィードバック）は廃止。問い合わせは [GitHub Issues](https://github.com/rurutheGeek/UBSLEEPY-next/issues) へ

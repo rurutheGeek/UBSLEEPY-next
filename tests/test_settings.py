@@ -104,3 +104,18 @@ def test_config_module_exposes_legacy_names():
     assert config.SETTINGS.paths.pokedex == config.POKEDEX_PATH
     assert config.GUILD_IDS is config.SETTINGS.ids.guild_ids
     assert config.DEFAULT_FILTER_DICT == {"進化段階": ["最終進化", "進化しない"]}
+
+
+def test_quizzes_missing_from_the_deployed_config_come_from_the_default(tmp_path):
+    # 配備先の config.json は古いまま残る。新しいクイズは既定の設定から足す
+    import json
+    raw = json.loads(open(DEFAULT, encoding="utf-8-sig").read())
+    del raw["SYSTEM_DICT_DICT"]["QUIZNAME_DICT"]["イントロクイズ"]
+    raw["SYSTEM_DICT_DICT"]["QUIZNAME_DICT"]["種族値クイズ"] = "bq"
+    path = tmp_path / "config.json"
+    path.write_text(json.dumps(raw, ensure_ascii=False), encoding="utf-8")
+
+    settings = load_settings(config_path=path, default_path=DEFAULT)
+
+    assert settings.quizname_dict["イントロクイズ"] == "introq"
+    assert list(settings.quizname_dict)[0] == "種族値クイズ"  # 既にある並びは変えない
