@@ -558,27 +558,23 @@ class FakeInteraction:
         self.response = FakeResponse()
 
 
-def test_q_takes_the_work_and_the_category(library):
+def test_q_has_no_options_for_one_quiz_only():
+    # /q は全クイズ共用。イントロクイズの絞り込みは /introdata だけで行う
+    assert [parameter.name for parameter in quiz_module.Quiz.q.parameters] == ['quizname']
+
+
+def test_q_posts_the_intro_quiz_with_the_filters_from_introdata(library):
     cog = quiz_module.Quiz(FakeBot())
     channel = FakeChannel()
+    _introdata(cog, channel, 'SV フィールド')
 
-    asyncio.run(cog.q.callback(
-        cog, FakeInteraction(channel), 'イントロクイズ', 'バイオレット', 'フィールド'))
+    asyncio.run(cog.q.callback(cog, FakeInteraction(channel), 'イントロクイズ'))
 
-    assert cog.state.intro_works == ['スカーレット・バイオレット']
-    assert cog.state.intro_categories == ['フィールド']
-    assert channel.sent[0][1]['embed'].title == 'イントロクイズ'
-
-
-def test_q_with_an_unknown_work_does_not_post(library):
-    cog = quiz_module.Quiz(FakeBot())
-    channel = FakeChannel()
-    interaction = FakeInteraction(channel)
-
-    asyncio.run(cog.q.callback(cog, interaction, 'イントロクイズ', 'ダイヤモンド'))
-
-    assert channel.sent == []
-    assert '作品が見つかりません' in interaction.response.messages[0][0]
+    kwargs = channel.sent[-1][1]
+    assert kwargs['embed'].title == 'イントロクイズ'
+    attachment = type('A', (), {'filename': kwargs['file'].filename})()
+    assert intro.track_from_message(
+        FakeMessage(author=None, attachments=[attachment])).id == 'b2'
 
 
 def _channel_answer(monkeypatch, content, footer='No.26 ポケモンクイズ - introq'):
