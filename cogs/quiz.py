@@ -276,7 +276,10 @@ class Quiz(commands.Cog):
                     and "No.26 ポケモンクイズ" in embedFooterText
                     and not "(done)" in embedFooterText
                 ):
-                    await QuizSession(self.bot, embedFooterText.split()[3], self.state).try_response(message)
+                    session = QuizSession(self.bot, embedFooterText.split()[3], self.state)
+                    # 回答後も同じVCで鳴き声を流せるように、回答元のVCを引き継ぐ
+                    session.voice_channel = voice_channel_for(message.channel)
+                    await session.try_response(message)
 
                 else:
                     ub.output_log("botへのリプライは無視されました")
@@ -316,7 +319,10 @@ class Quiz(commands.Cog):
                     guild_id=quizMessage.guild.id,
                 )
                 message.reference.resolved = quizMessage
-                await QuizSession(self.bot, name, self.state).try_response(message)
+                session = QuizSession(self.bot, name, self.state)
+                # 回答後も同じVCで鳴き声を流せるように、回答元のVCを引き継ぐ
+                session.voice_channel = voice_channel_for(message.channel)
+                await session.try_response(message)
                 return
         ub.output_warning("ポケモン名が投稿されましたがクイズ投稿が見つかりませんでした")
 
