@@ -549,6 +549,8 @@ def test_a_name_in_the_voice_text_chat_answers_the_cry_quiz(monkeypatch):
 
     assert [session.name for session in sessions] == ['cryq']
     assert sessions[0].responses == [message]
+    # 正解後の連続出題でも同じVCで流せるように、回答元のVCを引き継ぐ
+    assert sessions[0].voice_channel is channel
 
 
 def test_a_non_pokemon_message_in_the_channel_is_ignored(monkeypatch):
