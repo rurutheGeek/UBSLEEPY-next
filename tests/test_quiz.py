@@ -311,6 +311,45 @@ def test_cry_quiz_can_use_the_old_cry(monkeypatch, tmp_path):
     assert session_module.cry_from_message(session.qm) == ('リザードン', 'legacy')
 
 
+def _cry_dir_with(tmp_path, name, kinds):
+    cry_dir = tmp_path / 'cry'
+    for kind in kinds:
+        (cry_dir / kind).mkdir(parents=True, exist_ok=True)
+    (cry_dir / kinds[0] / name).write_bytes(b'')
+    return cry_dir
+
+
+def test_cry_candidates_respects_the_mode_and_filter(monkeypatch, tmp_path):
+    # モード「昔」はBWまでなので、ガラルなど新しい地方を絞ると0件になる
+    monkeypatch.setattr(
+        session_module, 'CRY_DIRECTORY',
+        _cry_dir_with(tmp_path, '0810.ogg', ('latest', 'legacy')))
+    state = quiz_module.QuizState()
+    state.cry_filter_dict = {'出身地': ['ガラル']}
+
+    assert [p.name for p, _ in session_module.cry_candidates(state)] == ['サルノリ']
+    state.cry_mode = 'legacy'
+    assert session_module.cry_candidates(state) == []
+
+
+def test_cry_post_explains_when_the_mode_has_no_cries(monkeypatch, tmp_path):
+    monkeypatch.setattr(
+        session_module, 'CRY_DIRECTORY',
+        _cry_dir_with(tmp_path, '1.ogg', ('latest', 'legacy')))
+    state = quiz_module.QuizState()
+    state.cry_mode = 'legacy'
+    state.cry_filter_dict = {'出身地': ['ガラル']}
+    session = quiz_module.QuizSession(FakeBot(), 'cryq', state)
+    channel = FakeChannel()
+
+    asyncio.run(session.post(channel))
+
+    text = channel.sent[0][0][0]
+    assert 'モード: 昔' in text
+    assert '出身地: ガラル' in text
+    assert 'BWまで' in text
+
+
 class FilterPokedex:
     def __init__(self, records):
         self.records = records
@@ -549,6 +588,8 @@ def test_a_name_in_the_voice_text_chat_answers_the_cry_quiz(monkeypatch):
 
     assert [session.name for session in sessions] == ['cryq']
     assert sessions[0].responses == [message]
+    # 正解後の連続出題でも同じVCで流せるように、回答元のVCを引き継ぐ
+    assert sessions[0].voice_channel is channel
 
 
 def test_a_non_pokemon_message_in_the_channel_is_ignored(monkeypatch):

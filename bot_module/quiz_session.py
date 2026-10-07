@@ -115,6 +115,27 @@ class QuizState:
         self.intro_categories = []  # イントロクイズの絞り込み: 区分（空は全部）
 
 
+def cry_candidates(state) -> list:
+    """出題条件（モードと絞り込み）に合う (ポケモン, 鳴き声の種類) の一覧。
+
+    モード「昔」はBWまでの鳴き声しか無いので、ガラル・パルデアなど
+    新しい地方を絞り込むと0件になる（件数表示と案内に使う）。
+    """
+    allowed = CRY_KINDS if state.cry_mode == "mix" else (state.cry_mode,)
+    pokedex = get_pokedex()
+    records = (pokedex.filter(state.cry_filter_dict)
+               if state.cry_filter_dict else pokedex.records)
+    candidates = []
+    for pokemon in records:
+        if pokemon.form_id != "00":
+            continue
+        kinds = [kind for kind in allowed
+                 if (CRY_DIRECTORY / kind / f"{pokemon.ndex_number}.ogg").exists()]
+        if kinds:
+            candidates.append((pokemon, kinds))
+    return candidates
+
+
 class QuizSession:
     def __init__(self, bot, quizName, state=None):
         self.bot = bot
@@ -217,9 +238,19 @@ class QuizSession:
         elif self.quizName == "cryq":
             picked = self.__random_cry()
             if picked is None:
+                mode_label = CRY_MODE_LABELS.get(
+                    self.state.cry_mode, self.state.cry_mode)
+                conditions = "、".join(
+                    f"{key}: {'/'.join(values)}"
+                    for key, values in self.state.cry_filter_dict.items())
+                detail = f"モード: {mode_label}"
+                if conditions:
+                    detail += f"、{conditions}"
+                hint = ("モード「昔」はBWまでの鳴き声です。"
+                        if self.state.cry_mode == "legacy" else "")
                 await sendChannel.send(
-                    "出題条件に合う鳴き声がありません"
-                    "（`/crydata` で条件を確認、リセットで既定に戻せます）")
+                    f"出題条件に合う鳴き声がありません（{detail}）\n"
+                    f"{hint}`/crydata` で条件を確認、リセットで既定に戻せます")
                 return
             qDatas, cryKind = picked
             quizEmbed.title = "鳴き声クイズ"
@@ -797,21 +828,7 @@ class QuizSession:
         出題条件（self.state.cry_mode）に合う種類だけを使う。
         mix のときは、あるものをランダムに選ぶ。
         """
-        if self.state.cry_mode == "mix":
-            allowed = CRY_KINDS
-        else:
-            allowed = (self.state.cry_mode,)
-        pokedex = get_pokedex()
-        records = (pokedex.filter(self.state.cry_filter_dict)
-                   if self.state.cry_filter_dict else pokedex.records)
-        candidates = []
-        for pokemon in records:
-            if pokemon.form_id != "00":
-                continue
-            kinds = [kind for kind in allowed
-                     if (CRY_DIRECTORY / kind / f"{pokemon.ndex_number}.ogg").exists()]
-            if kinds:
-                candidates.append((pokemon, kinds))
+        candidates = cry_candidates(self.state)
         if not candidates:
             ub.output_error(f"{self.quizName}: 鳴き声のあるポケモンがいません")
             return None

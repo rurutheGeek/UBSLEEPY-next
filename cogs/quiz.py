@@ -17,7 +17,7 @@ from bot_module import intro
 from bot_module.pokedex import get_pokedex
 from bot_module.quiz_session import (
     CRY_DIRECTORY, CRY_MODE_LABELS, CRY_REPLAY_BUTTON_ID, QuizSession, QuizState,
-    cry_from_message, play_cry)
+    cry_candidates, cry_from_message, play_cry)
 from bot_module.save import SaveError
 
 
@@ -325,8 +325,10 @@ class Quiz(commands.Cog):
                 ub.output_log("鳴き声の出題条件が更新されました")
 
             filters = self.state.cry_filter_dict
+            count = len(cry_candidates(self.state))
             lines = [
                 f"現在: **{CRY_MODE_LABELS[self.state.cry_mode]}**",
+                f"該当: {count}匹（鳴き声のあるもの）",
                 "使い方: `/crydata 今|昔|両方`、"
                 "`/crydata 地方 カントー`、`/crydata 世代 1`"
                 "（リセットで既定）",
@@ -336,6 +338,10 @@ class Quiz(commands.Cog):
                     lines.append(f"{key}: {'、'.join(values)}")
             else:
                 lines.append("絞り込み: なし（全部）")
+            if count == 0:
+                lines.append(
+                    "※この組み合わせに鳴き声がありません"
+                    "（モード「昔」はBWまで。`今` か `両方` にすると増えます）")
             cryEmbed = discord.Embed(
                 title="鳴き声クイズの出題条件",
                 color=0x9013FE,
@@ -373,7 +379,10 @@ class Quiz(commands.Cog):
                     and "No.26 ポケモンクイズ" in embedFooterText
                     and not "(done)" in embedFooterText
                 ):
-                    await QuizSession(self.bot, embedFooterText.split()[3], self.state).try_response(message)
+                    session = QuizSession(self.bot, embedFooterText.split()[3], self.state)
+                    # 回答後も同じVCで鳴き声を流せるように、回答元のVCを引き継ぐ
+                    session.voice_channel = voice_channel_for(message.channel)
+                    await session.try_response(message)
 
                 else:
                     ub.output_log("botへのリプライは無視されました")
@@ -419,7 +428,10 @@ class Quiz(commands.Cog):
                     guild_id=quizMessage.guild.id,
                 )
                 message.reference.resolved = quizMessage
-                await QuizSession(self.bot, name, self.state).try_response(message)
+                session = QuizSession(self.bot, name, self.state)
+                # 回答後も同じVCで鳴き声を流せるように、回答元のVCを引き継ぐ
+                session.voice_channel = voice_channel_for(message.channel)
+                await session.try_response(message)
                 return
         if is_pokemon:
             ub.output_warning("ポケモン名が投稿されましたがクイズ投稿が見つかりませんでした")
