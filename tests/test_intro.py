@@ -308,7 +308,7 @@ def test_intro_quiz_posts_a_clip(library):
     description = kwargs['embed'].description
     assert '添付のイントロ' in description
     assert '`DP野生`' in description and '`SV四天王`' in description  # 人名以外の例
-    assert '`作品`' in description and '`ギブ`' in description  # ヒントの種類
+    assert '`ヒント`' in description and '`ギブ`' in description
     assert kwargs['view'] is None
 
 
@@ -490,36 +490,27 @@ def test_giving_up_shows_the_answer(monkeypatch, library):
     assert 'テーブルシティ（スカーレット・バイオレット）' in question.edits[-1]['embed'].description
 
 
-def test_hints_show_the_work_and_the_category(library):
-    for word, expected in (('作品', '作品はソード・シールドです'),
-                           ('区分', '区分は戦闘です'),
-                           # 曲名（戦闘！ジムリーダー）ではなく、相手（ジムリーダー）の字
-                           ('文字数', '相手の文字数は6です'),
-                           ('頭文字', '相手の頭文字はジです')):
+def test_the_hint_is_the_work(library):
+    for word in ('ヒント', '作品'):
         q = _session()
         q.rm, q.qm, q.quizEmbed = FakeRM(), FakeQM(), discord.Embed()
         q.ansZero = intro.load_tracks()[0]
         q.ansText = word
 
         asyncio.run(q._QuizSession__hint())
+        asyncio.run(q._QuizSession__hint())  # 2回目も同じ答え（欄は増やさない）
 
-        assert q.rm.replies == [expected]
+        assert q.rm.replies == ['作品はソード・シールドです'] * 2
+        assert [field.name for field in q.quizEmbed.fields] == ['作品']
         assert 'attachments' not in q.qm.edits[-1]
 
 
-def test_the_random_hint_runs_out(library):
-    q = _session()
-    q.rm, q.qm, q.quizEmbed = FakeRM(), FakeQM(), discord.Embed()
-    q.ansZero = intro.load_tracks()[0]
-    q.ansText = 'ヒント'
+def test_other_hint_words_are_answers(monkeypatch, library):
+    # 頭文字・文字数・区分のヒントはやめた。ヒントの言葉ではないので、ふつうの回答として扱う
+    _question, answer, _reports, _logs = _answer(monkeypatch, '頭文字')
 
-    for _ in range(len(intro.INTRO_HINTS) + 1):
-        asyncio.run(q._QuizSession__hint())
-
-    # 役に立つ順に出す（まず作品）。区分は「ヒント」では出さない
-    assert [field.name for field in q.quizEmbed.fields] == list(intro.INTRO_HINTS)
-    assert q.rm.replies[0] == '作品はソード・シールドです'
-    assert q.rm.replies[-1] == 'これ以上 出せるヒントが ないロ'
+    assert answer.reactions_added == ['❓']
+    assert '曲リストにありません' in answer.replies[0]
 
 
 def _introdata(cog, channel, words=''):

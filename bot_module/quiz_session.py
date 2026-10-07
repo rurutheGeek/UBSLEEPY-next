@@ -283,7 +283,7 @@ class QuizSession:
             quizEmbed.description += (
                 "だれ（何）との戦闘曲か 作品の略称をつけて答えよう\n"
                 "例: `BWシロナ` `DP野生` `SV四天王` `剣盾ジムリーダー`\n"
-                f"ヒント: {intro.INTRO_HINT_WORDS}　あきらめる: `ギブ`")
+                "`ヒント` で作品が分かる　あきらめる: `ギブ`")
             voicePath = track.path
             quizFile = discord.File(
                 str(voicePath),
@@ -372,8 +372,7 @@ class QuizSession:
         elif self.quizName == "jtoeq":
             hints = ["文字数", "モジスウ", "頭文字", "カシラモジ", "イニシャル"]
         elif self.quizName == "introq":
-            hints = ["ヒント", "作品", "サクヒン", "区分", "クブン",
-                     "文字数", "モジスウ", "頭文字", "カシラモジ", "イニシャル"]
+            hints = ["ヒント", "作品", "サクヒン"]
 
         # ここでクイズの問題文を取得する
         if self.quizName == "bq":
@@ -604,24 +603,7 @@ class QuizSession:
                 hintIndex = "イニシャル"
 
         elif self.quizName == "introq":
-            if self.ansText == "ヒント":  # まだ出ていないヒントからランダムに出す
-                alreadyHints = [field.name for field in self.quizEmbed.fields]
-                stillHints = [
-                    x for x in intro.INTRO_HINTS
-                    if x not in alreadyHints and pokemon.hint_value(x) is not None
-                ]
-                if not stillHints:
-                    await self.rm.reply("これ以上 出せるヒントが ないロ")
-                    return
-                hintIndex = stillHints[0]  # 役に立つ順（作品 → 頭文字 → 文字数）
-            elif self.ansText in ["作品", "サクヒン"]:
-                hintIndex = "作品"
-            elif self.ansText in ["区分", "クブン"]:
-                hintIndex = "区分"
-            elif self.ansText in ["文字数", "モジスウ"]:
-                hintIndex = "相手の文字数"
-            elif self.ansText in ["頭文字", "カシラモジ", "イニシャル"]:
-                hintIndex = "相手の頭文字"
+            hintIndex = "作品"  # ヒントは作品だけ
 
         else:
             ub.output_warning(f"不明なクイズ識別子(hint): {self.quizName}")
