@@ -146,30 +146,15 @@ class Quiz(commands.Cog):
         name="q", description="クイズを出題します（鳴き声クイズはボイスでも再生）")
     @scoped
     @discord.app_commands.describe(
-        quizname="クイズの種別 未記入で種族値クイズが指定されます",
-        work="イントロクイズ: 出題する作品（一部でも可。以後の出題にも残ります）",
-        category="イントロクイズ: 戦闘曲かフィールド曲か（以後の出題にも残ります）",
+        quizname="クイズの種別 未記入で種族値クイズが指定されます"
     )
     @discord.app_commands.choices(
         quizname=[
             discord.app_commands.Choice(name=val, value=val)
             for val in list(cfg.QUIZNAME_DICT.keys())
-        ],
-        category=[
-            discord.app_commands.Choice(name=val, value=val)
-            for val in intro.CATEGORIES
-        ],
+        ]
     )
-    async def q(self, interaction: discord.Interaction, quizname: str = "種族値クイズ",
-                work: str = None, category: str = None):
-        if cfg.QUIZNAME_DICT[quizname] == "introq" and (work or category):
-            unknown = update_intro_filter(
-                self.state, [word for word in (work, category) if word])
-            if unknown:
-                await interaction.response.send_message(
-                    f"作品が見つかりません: {'、'.join(unknown)}",
-                    embed=intro_filter_embed(self.state), ephemeral=True)
-                return
+    async def q(self, interaction: discord.Interaction, quizname: str = "種族値クイズ"):
         seiseiEmbed = discord.Embed(
             title="**妖精さん おしごとチュウ**",
             color=0xFFFFFF,  # デフォルトカラー
@@ -179,15 +164,6 @@ class Quiz(commands.Cog):
         # ボイスチャンネル付属のテキストチャットで出したときは、そこで鳴き声を流す
         await QuizSession(self.bot, cfg.QUIZNAME_DICT[quizname], self.state).post(
             interaction.channel, voiceChannel=voice_channel_for(interaction.channel))
-
-    @q.autocomplete("work")
-    async def _work_autocomplete(self, interaction: discord.Interaction, current: str):
-        key = intro.normalize_title(current)
-        return [
-            discord.app_commands.Choice(name=name[:100], value=name[:100])
-            for name in intro.works()
-            if key in intro.normalize_title(name)
-        ][:25]
 
     @commands.Cog.listener()
     async def on_voice_state_update(self, member, before, after):
