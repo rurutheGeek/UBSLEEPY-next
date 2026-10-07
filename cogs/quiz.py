@@ -13,6 +13,7 @@ import bot_module.config as cfg
 from bot_module.command_scope import scoped
 import bot_module.func as ub
 import bot_module.guild_settings as guild_settings
+from bot_module import intro
 from bot_module.pokedex import get_pokedex
 from bot_module.quiz_session import (
     CRY_DIRECTORY, CRY_MODE_LABELS, CRY_REPLAY_BUTTON_ID, QuizSession, QuizState,
@@ -67,6 +68,65 @@ def update_filter(filters: dict, words: list, reset: dict) -> dict:
     filters.update(ub.make_filter_dict(words))
     return filters
 
+def update_intro_filter(state, words: list) -> list:
+    """イントロクイズの出題条件（作品・区分）の言葉を state に適用する。
+
+    「リセット」で全部、「作品」「区分」だけを書くとその条件を消す。
+    区分の言葉（戦闘・フィールド・その他）は区分に、それ以外は作品名として探す
+    （部分一致）。1回の入力に書いたぶんで置き換える。見つからなかった言葉を返す。
+    """
+    categories, work_names, unknown = [], [], []
+    for word in words:
+        if word == "リセット":
+            state.intro_works = []
+            state.intro_categories = []
+        elif word == "作品":
+            state.intro_works = []
+        elif word == "区分":
+            state.intro_categories = []
+        elif word in intro.CATEGORY_ALIASES or word.lower() in intro.CATEGORY_ALIASES:
+            category = intro.CATEGORY_ALIASES.get(
+                word, intro.CATEGORY_ALIASES.get(word.lower()))
+            if category not in categories:
+                categories.append(category)
+        elif matched := intro.match_works(word):
+            work_names += [name for name in matched if name not in work_names]
+        else:
+            unknown.append(word)
+    if categories:
+        state.intro_categories = categories
+    if work_names:
+        state.intro_works = work_names
+    return unknown
+
+
+def intro_filter_embed(state) -> discord.Embed:
+    """イントロクイズの出題条件と、選べる作品の一覧。"""
+    count = len(intro.filter_tracks(state.intro_works, state.intro_categories))
+    lines = [
+        f"該当曲数: {count}曲",
+        f"作品: {'、'.join(state.intro_works) or 'なし（全部）'}",
+        f"区分: {'、'.join(state.intro_categories) or 'なし（全部）'}",
+        "使い方: `/introdata 戦闘|フィールド|その他`、`/introdata 作品名`"
+        "（作品名は略称や一部でも可。リセットで既定）",
+        "回答: `略称＋戦う相手`（例: `BWシロナ`）。相手が1作品だけなら略称なしでも可",
+    ]
+    names = intro.works()
+    if names:
+        listing = "\n".join(
+            f"{name}（{len(intro.filter_tracks([name]))}曲）"
+            + (f" 略称: {'／'.join(intro.work_abbreviations(name))}"
+               if intro.work_abbreviations(name) else "")
+            for name in names)
+        if len(listing) > 1000:
+            listing = listing[:1000].rsplit("\n", 1)[0] + "\n…"
+    else:
+        listing = "曲がまだ用意されていません（tools/build_intro_clips.py）"
+    embed = discord.Embed(
+        title="イントロクイズの出題条件", color=0x9013FE,
+        description="\n".join(lines))
+    embed.add_field(name="選べる作品", value=listing, inline=False)
+    return embed
 
 
 class Quiz(commands.Cog):
@@ -86,15 +146,30 @@ class Quiz(commands.Cog):
         name="q", description="クイズを出題します（鳴き声クイズはボイスでも再生）")
     @scoped
     @discord.app_commands.describe(
-        quizname="クイズの種別 未記入で種族値クイズが指定されます"
+        quizname="クイズの種別 未記入で種族値クイズが指定されます",
+        work="イントロクイズ: 出題する作品（一部でも可。以後の出題にも残ります）",
+        category="イントロクイズ: 戦闘曲かフィールド曲か（以後の出題にも残ります）",
     )
     @discord.app_commands.choices(
         quizname=[
             discord.app_commands.Choice(name=val, value=val)
             for val in list(cfg.QUIZNAME_DICT.keys())
-        ]
+        ],
+        category=[
+            discord.app_commands.Choice(name=val, value=val)
+            for val in intro.CATEGORIES
+        ],
     )
-    async def q(self, interaction: discord.Interaction, quizname: str = "種族値クイズ"):
+    async def q(self, interaction: discord.Interaction, quizname: str = "種族値クイズ",
+                work: str = None, category: str = None):
+        if cfg.QUIZNAME_DICT[quizname] == "introq" and (work or category):
+            unknown = update_intro_filter(
+                self.state, [word for word in (work, category) if word])
+            if unknown:
+                await interaction.response.send_message(
+                    f"作品が見つかりません: {'、'.join(unknown)}",
+                    embed=intro_filter_embed(self.state), ephemeral=True)
+                return
         seiseiEmbed = discord.Embed(
             title="**妖精さん おしごとチュウ**",
             color=0xFFFFFF,  # デフォルトカラー
@@ -104,6 +179,15 @@ class Quiz(commands.Cog):
         # ボイスチャンネル付属のテキストチャットで出したときは、そこで鳴き声を流す
         await QuizSession(self.bot, cfg.QUIZNAME_DICT[quizname], self.state).post(
             interaction.channel, voiceChannel=voice_channel_for(interaction.channel))
+
+    @q.autocomplete("work")
+    async def _work_autocomplete(self, interaction: discord.Interaction, current: str):
+        key = intro.normalize_title(current)
+        return [
+            discord.app_commands.Choice(name=name[:100], value=name[:100])
+            for name in intro.works()
+            if key in intro.normalize_title(name)
+        ][:25]
 
     @commands.Cog.listener()
     async def on_voice_state_update(self, member, before, after):
@@ -265,6 +349,19 @@ class Quiz(commands.Cog):
             )
             await message.channel.send(response, embed=cryEmbed)
 
+        # イントロクイズの出題条件（作品・戦闘/フィールド）
+        elif message.content.startswith("/introdata"):
+            words = message.content.split()[1:]
+            response = "現在のイントロクイズの出題条件は以下の通りです"
+            if words:
+                unknown = update_intro_filter(self.state, words)
+                response = "イントロクイズの出題条件が変更されました"
+                if unknown:
+                    response = f"作品が見つかりません: {'、'.join(unknown)}"
+                ub.output_log("イントロの出題条件が更新されました")
+            await message.channel.send(
+                response, embed=intro_filter_embed(self.state))
+
         # bot自身へのリプライ(reference)に反応
         elif message.reference is not None:
             # リプライ先メッセージのキャッシュを取得
@@ -294,20 +391,26 @@ class Quiz(commands.Cog):
         elif (message.guild is not None
               and message.channel.id == guild_settings.setting(
                   message.guild.id, 'QUIZ_CHANNEL_ID')):
-            await self._answer_in_channel(message, ("bq", "cryq"))
+            await self._answer_in_channel(message, ("bq", "cryq", "introq"))
 
         # ボイスチャンネル付属のテキストチャット（鳴き声クイズへの回答）
         elif (message.guild is not None
               and voice_channel_for(message.channel) is not None):
-            await self._answer_in_channel(message, ("cryq", "bq"))
+            await self._answer_in_channel(message, ("cryq", "introq", "bq"))
 
     async def _answer_in_channel(self, message, quiz_names):
-        """チャンネルに書かれたポケモン名を、最新の未回答クイズへの回答にする。
+        """チャンネルに書かれたポケモン名・曲名を、最新の未回答クイズへの回答にする。
 
-        図鑑に無い言葉（雑談など）は無視する（fetch_pokemon は見つからないと
-        空のリストを返すので、真偽で判定する）。
+        図鑑にも曲リストにも無い言葉（雑談など）は無視する（fetch_pokemon は
+        見つからないと空のリストを返すので、真偽で判定する）。
+        イントロクイズへは曲名だけ、ほかのクイズへはポケモン名だけを回答にする。
         """
-        if not ub.fetch_pokemon(message.content):
+        is_pokemon = bool(ub.fetch_pokemon(message.content))
+        is_track = "introq" in quiz_names and bool(intro.find_tracks(message.content))
+        quiz_names = [
+            name for name in quiz_names
+            if (is_track if name == "introq" else is_pokemon)]
+        if not quiz_names:
             return
         async for quizMessage in message.channel.history(limit=10):
             if not quizMessage.embeds:
@@ -330,28 +433,34 @@ class Quiz(commands.Cog):
                 session.voice_channel = voice_channel_for(message.channel)
                 await session.try_response(message)
                 return
-        ub.output_warning("ポケモン名が投稿されましたがクイズ投稿が見つかりませんでした")
+        if is_pokemon:
+            ub.output_warning("ポケモン名が投稿されましたがクイズ投稿が見つかりませんでした")
 
     @commands.Cog.listener()
     async def on_interaction(self, interaction: discord.Interaction):
-        """鳴き声クイズの「もう一度再生」ボタンを処理する。"""
+        """鳴き声・イントロクイズの「もう一度再生」ボタンを処理する。"""
         data = interaction.data or {}
         if data.get("component_type") != 2:
             return
         if data.get("custom_id") != CRY_REPLAY_BUTTON_ID:
             return
         entry = cry_from_message(interaction.message)
+        track = None if entry else intro.track_from_message(interaction.message)
         voice_client = getattr(interaction.guild, "voice_client", None)
-        if entry is None or voice_client is None or voice_client.channel is None:
+        if ((entry is None and track is None)
+                or voice_client is None or voice_client.channel is None):
             await interaction.response.send_message(
                 "ボイスチャンネルにいないときは、添付の音声を聞いてください",
                 ephemeral=True)
             return
-        name, kind = entry
-        found = ub.fetch_pokemon(name)
-        if not found:
-            return
-        path = CRY_DIRECTORY / kind / f"{found[0].ndex_number}.ogg"
+        if track is not None:
+            path = track.path
+        else:
+            name, kind = entry
+            found = ub.fetch_pokemon(name)
+            if not found:
+                return
+            path = CRY_DIRECTORY / kind / f"{found[0].ndex_number}.ogg"
         if play_cry(voice_client, path):
             # 連打しても同じ文が積み上がらないよう、回数を1行で出す
             message_id = getattr(interaction.message, "id", 0)

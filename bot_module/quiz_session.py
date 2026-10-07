@@ -17,6 +17,7 @@ import jaconv
 
 import bot_module.config as cfg
 from bot_module import func as ub
+from bot_module import intro
 from bot_module.pokedex import get_pokedex
 import bot_module.save as save
 from bot_module.save import SaveError
@@ -110,6 +111,8 @@ class QuizState:
         self.processing = False  # 回答開示処理中フラグ
         self.cry_mode = "latest"  # 鳴き声クイズの出題条件: latest / legacy / mix
         self.cry_filter_dict = {}  # 鳴き声クイズの絞り込み（地方・世代など。空は全部）
+        self.intro_works = []  # イントロクイズの絞り込み: 作品（空は全部）
+        self.intro_categories = []  # イントロクイズの絞り込み: 区分（空は全部）
 
 
 def cry_candidates(state) -> list:
@@ -149,6 +152,7 @@ class QuizSession:
         quizEmbed = discord.Embed(title="", color=0x9013FE, description="")
         quizEmbed.set_footer(text=f"No.26 ポケモンクイズ - {self.quizName}")
         quizView = None
+        voicePath = None  # ボイスチャンネルで流す音源（鳴き声・イントロ）
         # 必要な要素をクイズごとに編集
 
         if self.quizName == "bq":
@@ -257,10 +261,34 @@ class QuizSession:
             else:
                 quizEmbed.description = "添付の鳴き声を聞いて ポケモン名を答えよう"
             quizEmbed.set_thumbnail(url=self.__imageLink())  # 正解までDecamark
-            cryPath = CRY_DIRECTORY / cryKind / f"{qDatas.ndex_number}.ogg"
+            voicePath = CRY_DIRECTORY / cryKind / f"{qDatas.ndex_number}.ogg"
             cryNonce = secrets.token_hex(CRY_NONCE_BYTES)
             quizFile = discord.File(
-                str(cryPath), filename=cry_filename(qDatas.name, cryKind, cryNonce))
+                str(voicePath), filename=cry_filename(qDatas.name, cryKind, cryNonce))
+
+        elif self.quizName == "introq":
+            track = intro.random_track(
+                self.state.intro_works, self.state.intro_categories)
+            if track is None:
+                await sendChannel.send(
+                    "出題条件に合う曲がありません"
+                    "（`/introdata` で条件を確認、リセットで既定に戻せます）")
+                return
+            quizEmbed.title = "イントロクイズ"
+            if voiceChannel is not None:
+                quizEmbed.description = (
+                    "イントロをボイスチャンネルで流します。"
+                    "作品の略称＋戦う相手で答えよう（例: `BWシロナ`）")
+                quizView = replay_button_view()
+            else:
+                quizEmbed.description = (
+                    "添付のイントロを聞いて 作品の略称＋戦う相手で答えよう"
+                    "（例: `BWシロナ`）")
+            voicePath = track.path
+            quizFile = discord.File(
+                str(voicePath),
+                filename=intro.intro_filename(
+                    track.id, secrets.token_hex(CRY_NONCE_BYTES)))
 
         else:
             ub.output_warning(f"不明なクイズ識別子(post): {self.quizName}")
@@ -271,8 +299,8 @@ class QuizSession:
             content=quizContent, file=quizFile, embed=quizEmbed, view=quizView
         )
 
-        if self.quizName == "cryq" and voiceChannel is not None:
-            await self.__play_cry(voiceChannel, cryPath)
+        if voicePath is not None and voiceChannel is not None:
+            await self.__play_cry(voiceChannel, voicePath)
 
     async def __play_cry(self, voice_channel, path):
         """ボイスチャンネルで鳴き声を流す（全員が同時に聞ける）。
@@ -343,6 +371,9 @@ class QuizSession:
             ]
         elif self.quizName == "jtoeq":
             hints = ["文字数", "モジスウ", "頭文字", "カシラモジ", "イニシャル"]
+        elif self.quizName == "introq":
+            hints = ["ヒント", "作品", "サクヒン", "区分", "クブン",
+                     "文字数", "モジスウ", "頭文字", "カシラモジ", "イニシャル"]
 
         # ここでクイズの問題文を取得する
         if self.quizName == "bq":
@@ -358,6 +389,13 @@ class QuizSession:
                     "この問題の答えが分からなくなりました。もう一度 /q で出題してください")
                 return
             self.examText = entry[0]
+        elif self.quizName == "introq":
+            self.track = intro.track_from_message(self.qm)
+            if self.track is None:
+                await self.rm.reply(
+                    "この問題の答えが分からなくなりました。もう一度 /q で出題してください")
+                return
+            self.examText = self.track.title
 
         # ここでクイズの回答を取得する
         self.ansList, self.ansZero = self.__answers()
@@ -390,6 +428,11 @@ class QuizSession:
                 jaconv.kata2alphabet(fixAns), kana=False, ascii=False, digit=True
             ).lower()
             self.ansList[0] = self.ansList[0].lower()
+        elif self.quizName == "introq":
+            # 「略称＋戦う相手」か、1作品にしか無い言い方なら正解（対応リストで照合）
+            introVerdict = intro.judge(self.track, self.ansText)
+            if introVerdict == intro.CORRECT:
+                fixAns = self.ansList[0]
 
         if fixAns in self.ansList:
             judge = "正答"
@@ -416,6 +459,21 @@ class QuizSession:
             if isinstance(self.rm, discord.Message):
                 reaction = "❓"
                 await self.rm.reply(f"{self.ansText} は図鑑に登録されていません")
+        elif self.quizName == "introq" and introVerdict in (
+                intro.AMBIGUOUS, intro.AMBIGUOUS_SONG, intro.UNKNOWN):
+            judge = None  # 戦績には数えない
+            if isinstance(self.rm, discord.Message):
+                reaction = "❓"
+                if introVerdict == intro.AMBIGUOUS:
+                    await self.rm.reply(
+                        "ほかの作品にも ある曲だロ。作品の略称もつけて答えてね"
+                        "（`略称＋相手` のかたち。例: `BWシロナ`）")
+                elif introVerdict == intro.AMBIGUOUS_SONG:
+                    await self.rm.reply(
+                        "その相手の曲は いくつかあるロ。`決戦`・`チャンピオン`・"
+                        "地方名なども つけて答えてね（例: `BW決戦N`）")
+                else:
+                    await self.rm.reply(f"{self.ansText} は曲リストにありません")
         elif (
             judge == "誤答"
             and self.quizName == "jtoeq"
@@ -539,6 +597,26 @@ class QuizSession:
             elif self.ansText in ["頭文字", "カシラモジ", "イニシャル"]:
                 hintIndex = "イニシャル"
 
+        elif self.quizName == "introq":
+            if self.ansText == "ヒント":  # まだ出ていないヒントからランダムに出す
+                alreadyHints = [field.name for field in self.quizEmbed.fields]
+                stillHints = [
+                    x for x in intro.INTRO_HINTS
+                    if x not in alreadyHints and pokemon.hint_value(x) is not None
+                ]
+                if not stillHints:
+                    await self.rm.reply("これ以上 出せるヒントが ないロ")
+                    return
+                hintIndex = random.choice(stillHints)
+            elif self.ansText in ["作品", "サクヒン"]:
+                hintIndex = "作品"
+            elif self.ansText in ["区分", "クブン"]:
+                hintIndex = "区分"
+            elif self.ansText in ["文字数", "モジスウ"]:
+                hintIndex = "文字数"
+            elif self.ansText in ["頭文字", "カシラモジ", "イニシャル"]:
+                hintIndex = "頭文字"
+
         else:
             ub.output_warning(f"不明なクイズ識別子(hint): {self.quizName}")
             return
@@ -603,6 +681,13 @@ class QuizSession:
             self.quizEmbed.description = (
                 f"こたえ: {self.ansList[0]}"
                 + (f"（{label}のなきごえ）" if label else ''))
+        elif self.quizName == "introq":
+            self.quizEmbed.description = (
+                f"こたえ: {self.ansList[0]}"
+                + (f"（{self.ansZero.work}）" if self.ansZero.work else ''))
+            appears = "、".join(work for work, _ in self.ansZero.appearances)
+            if appears:  # 再録・流用で流れるほかの作品
+                self.quizEmbed.description += f"\nほかに流れる作品: {appears}"
         elif self.quizName == "acq":
             self.quizEmbed.description = f"{ub.bss_to_text(self.ansZero)}\n"
             if self.ansList[0] == "同値":
@@ -717,6 +802,10 @@ class QuizSession:
             aData = ub.fetch_pokemon(self.examText)[0]
             answers.append(aData.name)
 
+        elif self.quizName == "introq":
+            aData = self.track
+            answers.append(aData.title)
+
         else:
             ub.output_warning(f"不明なクイズ識別子(answers): {self.quizName}")
             return answers, aData
@@ -754,7 +843,7 @@ class QuizSession:
                 displayImage = ub.fetch_pokemon(searchWord)
                 if displayImage:  # 回答ポケモンが発見できた場合
                     link = f"{cfg.EX_SOURCE_LINK}art/{displayImage[0].image_number}.png"
-            else:
+            elif self.quizName != "introq":  # イントロクイズは画像を出さない
                 ub.output_warning(f"不明なクイズ識別子(imageLink): {self.quizName}")
         return link
 
