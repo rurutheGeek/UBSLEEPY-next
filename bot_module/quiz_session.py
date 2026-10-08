@@ -113,6 +113,7 @@ class QuizState:
         self.cry_filter_dict = {}  # 鳴き声クイズの絞り込み（地方・世代など。空は全部）
         self.intro_works = []  # イントロクイズの絞り込み: 作品（空は全部）
         self.intro_categories = []  # イントロクイズの絞り込み: 区分（空は全部）
+        self.intro_secret = False  # イントロクイズ: シークレットの曲（初期バージョンなど）も出す
 
 
 def cry_candidates(state) -> list:
@@ -268,20 +269,23 @@ class QuizSession:
 
         elif self.quizName == "introq":
             track = intro.random_track(
-                self.state.intro_works, self.state.intro_categories)
+                self.state.intro_works, self.state.intro_categories,
+                self.state.intro_secret)
             if track is None:
                 await sendChannel.send(
                     "出題条件に合う曲がありません"
                     "（`/introdata` で条件を確認、リセットで既定に戻せます）")
                 return
             quizEmbed.title = "イントロクイズ"
+            # 戦闘曲に限らない言い方にする（フィールド曲なども同じ文で出す）
             if voiceChannel is not None:
                 quizEmbed.description = "イントロをボイスチャンネルで流します。"
                 quizView = replay_button_view()
             else:
                 quizEmbed.description = "添付のイントロを聞いて、"
             quizEmbed.description += (
-                "だれ（何）との戦闘曲か 作品の略称をつけて答えよう\n"
+                "何の曲か当てよう\n"
+                "答え方: 作品の略称＋曲の中身（戦う相手・場所など）\n"
                 "例: `BWシロナ` `DP野生` `SV四天王` `剣盾ジムリーダー`\n"
                 "`ヒント` で作品が分かる　あきらめる: `ギブ`")
             voicePath = track.path
@@ -462,7 +466,7 @@ class QuizSession:
                 reaction = "❓"
                 await self.rm.reply(f"{self.ansText} は図鑑に登録されていません")
         elif self.quizName == "introq" and introVerdict in (
-                intro.AMBIGUOUS, intro.AMBIGUOUS_SONG, intro.UNKNOWN):
+                intro.AMBIGUOUS, intro.AMBIGUOUS_SONG, intro.PARTIAL, intro.UNKNOWN):
             judge = None  # 戦績には数えない
             if isinstance(self.rm, discord.Message):
                 reaction = "❓"
@@ -470,6 +474,9 @@ class QuizSession:
                     await self.rm.reply(
                         "ほかの作品にも ある曲だロ。作品の略称もつけて答えてね"
                         "（`略称＋相手` のかたち。例: `BWシロナ`）")
+                elif introVerdict == intro.PARTIAL:
+                    await self.rm.reply(
+                        "おしいロ！ もう少し くわしく答えてね")
                 elif introVerdict == intro.AMBIGUOUS_SONG:
                     titles = "／".join(
                         f"`{title}`" for title in

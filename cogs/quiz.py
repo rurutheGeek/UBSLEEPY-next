@@ -68,6 +68,13 @@ def update_filter(filters: dict, words: list, reset: dict) -> dict:
     filters.update(ub.make_filter_dict(words))
     return filters
 
+# /introdata でシークレットの曲（初期バージョンなど）を出題に入れる・外す言葉
+SECRET_WORDS = {
+    "シークレット": True, "しーくれっと": True, "シークレットあり": True, "secret": True,
+    "シークレットなし": False, "しーくれっとなし": False, "通常": False,
+}
+
+
 def update_intro_filter(state, words: list) -> list:
     """イントロクイズの出題条件（作品・区分）の言葉を state に適用する。
 
@@ -80,6 +87,9 @@ def update_intro_filter(state, words: list) -> list:
         if word == "リセット":
             state.intro_works = []
             state.intro_categories = []
+            state.intro_secret = False
+        elif word in SECRET_WORDS:
+            state.intro_secret = SECRET_WORDS[word]
         elif word == "作品":
             state.intro_works = []
         elif word == "区分":
@@ -102,11 +112,17 @@ def update_intro_filter(state, words: list) -> list:
 
 def intro_filter_embed(state) -> discord.Embed:
     """イントロクイズの出題条件と、選べる作品の一覧。"""
-    count = len(intro.filter_tracks(state.intro_works, state.intro_categories))
+    count = len(intro.filter_tracks(
+        state.intro_works, state.intro_categories, state.intro_secret))
+    hidden = len(intro.filter_tracks(
+        state.intro_works, state.intro_categories, True)) - count
     lines = [
         f"該当曲数: {count}曲",
         f"作品: {'、'.join(state.intro_works) or 'なし（全部）'}",
         f"区分: {'、'.join(state.intro_categories) or 'なし（全部）'}",
+        "シークレット: " + (
+            "あり（初期バージョンなども出す）" if state.intro_secret
+            else f"なし（`/introdata シークレット` で {hidden}曲 追加）"),
         "使い方: `/introdata 戦闘|フィールド|その他`、`/introdata 作品名`"
         "（作品名は略称や一部でも可。リセットで既定）",
         "回答: `略称＋戦う相手`（例: `BWシロナ`）。相手が1作品だけなら略称なしでも可",
@@ -114,7 +130,7 @@ def intro_filter_embed(state) -> discord.Embed:
     names = intro.works()
     if names:
         listing = "\n".join(
-            f"{name}（{len(intro.filter_tracks([name]))}曲）"
+            f"{name}（{len(intro.filter_tracks([name], secret=state.intro_secret))}曲）"
             + (f" 略称: {'／'.join(intro.work_abbreviations(name))}"
                if intro.work_abbreviations(name) else "")
             for name in names)

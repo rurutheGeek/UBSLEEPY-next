@@ -167,6 +167,9 @@ _HEAD = re.compile(r"^(?:(?:戦闘|決戦|戦い)\s*[！!：:]|battle!)\s*(.+)$"
 # 同じ曲の別バージョンを表すかっこ書き（地方名などは別の曲として残す）
 _NOT_A_PLACE = re.compile(r"^\d+$|ver|バージョン|original|交代|^[昼夜]$", re.IGNORECASE)
 _GENERIC_HEADS = ("戦い", "戦闘", "勝利", "")
+# 別バージョンを表す曲名。ふつうの音源が別にあればシークレットにする
+# （/introdata シークレット で出題に入れる）
+SECRET_PATTERN = re.compile(r"ver\.?\s*1\.0|別バージョン", re.IGNORECASE)
 # 最終戦の曲（「決戦！N」「戦闘！チャンピオンネモ」「戦闘！本気のマスタード」）
 _FINAL_HEAD = re.compile(r"^\s*決戦\s*[！!：:]")
 _FINAL_PREFIX = re.compile(r"^(?:チャンピオン|本気の)(.{2,})$")
@@ -280,6 +283,11 @@ class IntroTrack:
         for _appears, aliases in self.appearances:
             names += aliases
         return self._keys(names)
+
+    @cached_property
+    def variant(self) -> bool:
+        """曲名が別バージョン（Ver. 1.0・別バージョン）を表しているか。"""
+        return bool(SECRET_PATTERN.search(self.title))
 
     @cached_property
     def _rule_keys(self) -> tuple:
@@ -410,18 +418,26 @@ def match_works(word: str) -> list:
     return exact or [name for name in names if key in normalize_title(name)]
 
 
-def filter_tracks(work_names=(), categories=()) -> list:
-    """作品・区分で絞り込む（空は絞り込まない）。"""
+def filter_tracks(work_names=(), categories=(), secret=False) -> list:
+    """作品・区分で絞り込む（空は絞り込まない）。
+
+    シークレットの曲（初期バージョンなど）は、secret=True のときだけ入れる。
+    """
     wanted = set(map(work_key, work_names))
+    tracks = load_tracks()
+    # 別バージョンは、同じ曲のふつうの音源があるときだけシークレットにする
+    # （別バージョンしか無い曲まで出なくならないように）
+    regular = {(track.work, track.song) for track in tracks if not track.variant}
     return [
-        track for track in load_tracks()
+        track for track in tracks
         if (not wanted or wanted & track.work_keys)
         and (not categories or track.category in categories)
+        and (secret or not track.variant or (track.work, track.song) not in regular)
     ]
 
 
-def random_track(work_names=(), categories=()):
-    candidates = filter_tracks(work_names, categories)
+def random_track(work_names=(), categories=(), secret=False):
+    candidates = filter_tracks(work_names, categories, secret)
     return random.choice(candidates) if candidates else None
 
 
@@ -438,8 +454,29 @@ def find_tracks(text: str) -> list:
 CORRECT = "correct"
 AMBIGUOUS = "ambiguous"  # 相手は合っているが、どの作品か決まらない
 AMBIGUOUS_SONG = "ambiguous_song"  # 作品は決まるが、同じ相手の曲がいくつかある
+PARTIAL = "partial"  # 答えの一部だけ合っている（トレーナー → 学園のトレーナー）
 WRONG = "wrong"
 UNKNOWN = "unknown"  # 曲リストのどれにも当たらない
+
+
+PARTIAL_LENGTH = 3  # これより短い言葉は「一部が合っている」と見なさない
+
+
+def is_partial(track, key: str) -> bool:
+    """答えが、この曲の答えの一部になっているか（略称は外して比べる）。
+
+    「トレーナー」は「学園のトレーナー」の一部、「オリジン」は
+    「オリジンフォルムディアルガ・パルキア」の一部。おしいので聞き返す。
+    """
+    rests = {key}
+    for abbreviation in {canon(a) for a in track.abbreviations} - {""}:
+        if key.startswith(abbreviation):
+            rests.add(key[len(abbreviation):].lstrip("ノ"))
+        if key.endswith(abbreviation):
+            rests.add(key[:-len(abbreviation)])
+    return any(
+        len(rest) >= PARTIAL_LENGTH and rest in answer
+        for rest in rests for answer in track.plain)
 
 
 def judge(track, text: str) -> str:
@@ -459,6 +496,8 @@ def judge(track, text: str) -> str:
     elif key in track.plain:
         field = "plain"
         pool = [other for other in tracks if key in other.plain]
+    elif is_partial(track, key):
+        return PARTIAL
     elif any(key in other.plain or key in other.qualified for other in tracks):
         return WRONG
     else:
