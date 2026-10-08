@@ -80,7 +80,13 @@ def test_no_manifest_means_no_tracks(monkeypatch, tmp_path):
 def test_tracks_are_filtered_by_work_and_category(library):
     ids = lambda tracks: [track.id for track in tracks]  # noqa: E731
 
-    assert ids(intro.filter_tracks(categories=['戦闘'])) == ['a1', 'b1', 'b4', 'b5']
+    assert ids(intro.filter_tracks(categories=['戦闘'])) == ['a1', 'b1', 'b5']
+    # 初期バージョン（Ver. 1.0）はシークレット。入れると言ったときだけ出る
+    assert ids(intro.filter_tracks(categories=['戦闘'], secret=True)) == [
+        'a1', 'b1', 'b4', 'b5']
+    # 別バージョンしか音源が無い曲は、シークレットにしない
+    (library / 'clips' / 'b5.ogg').unlink()
+    assert ids(intro.filter_tracks(categories=['戦闘'])) == ['a1', 'b1', 'b4']
     assert ids(intro.filter_tracks(['ソード・シールド'])) == ['a1', 'a2']
     assert ids(intro.filter_tracks(['ソード・シールド'], ['フィールド'])) == ['a2']
 
@@ -308,6 +314,7 @@ def test_intro_quiz_posts_a_clip(library):
     description = kwargs['embed'].description
     assert '添付のイントロ' in description
     assert '`DP野生`' in description and '`SV四天王`' in description  # 人名以外の例
+    assert '戦闘曲' not in description  # フィールド曲なども同じ文で出す
     assert '`ヒント`' in description and '`ギブ`' in description
     assert kwargs['view'] is None
 
@@ -451,6 +458,29 @@ def test_an_answer_without_the_work_asks_for_it(monkeypatch, library):
     assert logs[0][2] is None
 
 
+def test_a_part_of_the_answer_gets_another_try(monkeypatch, library):
+    academy = intro.IntroTrack('p1', '戦闘！学園のトレーナー', 'スカーレット・バイオレット', '戦闘')
+    plain = intro.IntroTrack('p2', '戦闘！トレーナー', 'スカーレット・バイオレット', '戦闘')
+    origin = intro.IntroTrack(
+        'p3', '戦い：ディアルガ・パルキア （オリジンフォルム）', 'Pokémon LEGENDS アルセウス', '戦闘')
+    tracks = [academy, plain, origin]
+    monkeypatch.setattr(intro, 'load_tracks', lambda: tracks)
+
+    assert intro.judge(academy, 'トレーナー') == intro.PARTIAL  # 誤答にせず聞き返す
+    assert intro.judge(academy, 'svトレーナー') == intro.PARTIAL
+    assert intro.judge(academy, '学園のトレーナー') == intro.CORRECT
+    assert intro.judge(plain, 'トレーナー') == intro.CORRECT
+    assert intro.judge(origin, 'オリジ') == intro.PARTIAL
+    assert intro.judge(origin, 'ネモ') == intro.UNKNOWN
+    assert intro.judge(academy, 'ナー') == intro.UNKNOWN  # 短すぎる言葉は数えない
+
+    monkeypatch.setattr(intro, 'track_from_message', lambda message: academy)
+    question, answer, reports, logs = _answer(monkeypatch, 'トレーナー')
+    assert answer.reactions_added == ['❓']
+    assert 'おしい' in answer.replies[0]
+    assert question.edits == [] and reports == [] and logs[0][2] is None
+
+
 def test_an_answer_that_fits_several_songs_lists_them(monkeypatch, library):
     # SVの「野生ポケモン」は Ver. 1.0 と同じ曲。別の曲を足して、決まらない状態にする
     extra = intro.IntroTrack('x1', '決戦！テーブルシティ', 'スカーレット・バイオレット', 'フィールド')
@@ -549,7 +579,14 @@ def test_introdata_lists_the_works_and_reports_unknown_words(library):
     args, kwargs = _introdata(cog, channel)
     assert '現在の' in args[0]
     assert 'ソード・シールド（2曲）' in kwargs['embed'].fields[0].value
+    assert 'スカーレット・バイオレット（4曲）' in kwargs['embed'].fields[0].value
+    assert '`/introdata シークレット` で 1曲 追加' in kwargs['embed'].description
+
+    _args, kwargs = _introdata(cog, channel, 'シークレット')
+    assert cog.state.intro_secret is True
     assert 'スカーレット・バイオレット（5曲）' in kwargs['embed'].fields[0].value
+    _introdata(cog, channel, 'シークレットなし')
+    assert cog.state.intro_secret is False
 
     args, _kwargs = _introdata(cog, channel, 'ダイヤモンド')
     assert args[0] == '作品が見つかりません: ダイヤモンド'
