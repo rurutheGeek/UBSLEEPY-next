@@ -68,7 +68,7 @@ def update_filter(filters: dict, words: list, reset: dict) -> dict:
     filters.update(ub.make_filter_dict(words))
     return filters
 
-# /introdata でシークレットの曲（初期バージョンなど）を出題に入れる・外す言葉
+# /introdata でシークレットの曲（未使用曲・古いバージョン）を出題に入れる・外す言葉
 SECRET_WORDS = {
     "シークレット": True, "しーくれっと": True, "シークレットあり": True, "secret": True,
     "シークレットなし": False, "しーくれっとなし": False, "通常": False,
@@ -121,7 +121,7 @@ def intro_filter_embed(state) -> discord.Embed:
         f"作品: {'、'.join(state.intro_works) or 'なし（全部）'}",
         f"区分: {'、'.join(state.intro_categories) or 'なし（全部）'}",
         "シークレット: " + (
-            "あり（初期バージョンなども出す）" if state.intro_secret
+            "あり（未使用曲・古いバージョンも出す）" if state.intro_secret
             else f"なし（`/introdata シークレット` で {hidden}曲 追加）"),
         "使い方: `/introdata 戦闘|フィールド|その他`、`/introdata 作品名`"
         "（作品名は略称や一部でも可。リセットで既定）",

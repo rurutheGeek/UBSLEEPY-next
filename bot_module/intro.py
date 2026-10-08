@@ -12,6 +12,7 @@
 - resource/intro_works.csv   作品名（一部）,略称（`|` 区切り）
 - resource/intro_words.csv   言葉,言い換え（漢字のよみなど。回答と曲名の両方に当てる）
 - resource/intro_aliases.csv 作品（略称。空は全作品）,相手,別名（`|` 区切り）
+- resource/intro_secret.csv  作品（略称）,曲名,理由（ふだんは出題しない曲）
 - resource/intro_appearances.csv 原曲の作品,相手,登場する作品,そこでの呼び名
   （再録・流用。音源は原曲だけだが、登場する作品の略称でも答えられ、絞り込みにも入る）
 """
@@ -30,6 +31,7 @@ WORKS_PATH = Path("resource/intro_works.csv")
 WORDS_PATH = Path("resource/intro_words.csv")
 ALIASES_PATH = Path("resource/intro_aliases.csv")
 APPEARANCES_PATH = Path("resource/intro_appearances.csv")
+SECRET_PATH = Path("resource/intro_secret.csv")
 MANIFEST_NAME = "manifest.csv"
 CLIP_DIRECTORY_NAME = "clips"
 MANIFEST_FIELDS = ("id", "title", "work", "category", "aliases")
@@ -132,6 +134,14 @@ def _appearance_rules() -> tuple:
 
 
 @lru_cache(maxsize=None)
+def _secret_rules() -> tuple:
+    """シークレットの曲の (作品の略称, 曲名) の並び（どちらも照合形）。"""
+    return tuple(
+        (canon(row[0]), canon(row[1]))
+        for row in _rows(SECRET_PATH) if len(row) >= 2 and canon(row[1]))
+
+
+@lru_cache(maxsize=None)
 def work_key(work: str) -> str:
     """作品を見分けるキー。作品名でも略称でも同じ作品なら同じ値になる。"""
     name = normalize_title(work)
@@ -154,7 +164,7 @@ def work_names(work: str) -> tuple:
 def reset_answer_lists() -> None:
     """対応リストを読み直す（ファイルを差し替えたとき・テスト用）。"""
     for cached in (_words, _work_rules, work_abbreviations, _alias_rules,
-                   _appearance_rules, work_key, work_names):
+                   _appearance_rules, _secret_rules, work_key, work_names):
         cached.cache_clear()
     _cache["key"] = None
 
@@ -167,9 +177,6 @@ _HEAD = re.compile(r"^(?:(?:戦闘|決戦|戦い)\s*[！!：:]|battle!)\s*(.+)$"
 # 同じ曲の別バージョンを表すかっこ書き（地方名などは別の曲として残す）
 _NOT_A_PLACE = re.compile(r"^\d+$|ver|バージョン|original|交代|^[昼夜]$", re.IGNORECASE)
 _GENERIC_HEADS = ("戦い", "戦闘", "勝利", "")
-# 別バージョンを表す曲名。ふつうの音源が別にあればシークレットにする
-# （/introdata シークレット で出題に入れる）
-SECRET_PATTERN = re.compile(r"ver\.?\s*1\.0|別バージョン", re.IGNORECASE)
 # 最終戦の曲（「決戦！N」「戦闘！チャンピオンネモ」「戦闘！本気のマスタード」）
 _FINAL_HEAD = re.compile(r"^\s*決戦\s*[！!：:]")
 _FINAL_PREFIX = re.compile(r"^(?:チャンピオン|本気の)(.{2,})$")
@@ -285,9 +292,12 @@ class IntroTrack:
         return self._keys(names)
 
     @cached_property
-    def variant(self) -> bool:
-        """曲名が別バージョン（Ver. 1.0・別バージョン）を表しているか。"""
-        return bool(SECRET_PATTERN.search(self.title))
+    def secret(self) -> bool:
+        """ふだんは出題しない曲か（未使用曲・古いバージョン。intro_secret.csv に書いたもの）。"""
+        abbreviations = {canon(a) for a in self.abbreviations}
+        return any(
+            title == canon(self.title) and work in abbreviations
+            for work, title in _secret_rules())
 
     @cached_property
     def _rule_keys(self) -> tuple:
@@ -421,18 +431,14 @@ def match_works(word: str) -> list:
 def filter_tracks(work_names=(), categories=(), secret=False) -> list:
     """作品・区分で絞り込む（空は絞り込まない）。
 
-    シークレットの曲（初期バージョンなど）は、secret=True のときだけ入れる。
+    シークレットの曲（未使用曲・古いバージョン）は、secret=True のときだけ入れる。
     """
     wanted = set(map(work_key, work_names))
-    tracks = load_tracks()
-    # 別バージョンは、同じ曲のふつうの音源があるときだけシークレットにする
-    # （別バージョンしか無い曲まで出なくならないように）
-    regular = {(track.work, track.song) for track in tracks if not track.variant}
     return [
-        track for track in tracks
+        track for track in load_tracks()
         if (not wanted or wanted & track.work_keys)
         and (not categories or track.category in categories)
-        and (secret or not track.variant or (track.work, track.song) not in regular)
+        and (secret or not track.secret)
     ]
 
 
