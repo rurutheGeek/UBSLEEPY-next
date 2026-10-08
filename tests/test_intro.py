@@ -29,7 +29,7 @@ ROWS = (
 @pytest.fixture(autouse=True)
 def answer_lists(monkeypatch):
     """対応リストはテスト用の固定のものを使う（本物は編集で変わるため）。"""
-    for name in ('works', 'words', 'aliases', 'appearances'):
+    for name in ('works', 'words', 'aliases', 'appearances', 'secret'):
         monkeypatch.setattr(intro, f'{name.upper()}_PATH',
                             intro.Path(f'tests/data/intro_{name}.csv'))
     intro.reset_answer_lists()
@@ -81,14 +81,12 @@ def test_tracks_are_filtered_by_work_and_category(library):
     ids = lambda tracks: [track.id for track in tracks]  # noqa: E731
 
     assert ids(intro.filter_tracks(categories=['戦闘'])) == ['a1', 'b1', 'b5']
-    # 初期バージョン（Ver. 1.0）はシークレット。入れると言ったときだけ出る
+    # シークレットのリストにある曲（更新前の音源）は、入れると言ったときだけ出る
     assert ids(intro.filter_tracks(categories=['戦闘'], secret=True)) == [
         'a1', 'b1', 'b4', 'b5']
-    # 別バージョンしか音源が無い曲は、シークレットにしない
-    (library / 'clips' / 'b5.ogg').unlink()
-    assert ids(intro.filter_tracks(categories=['戦闘'])) == ['a1', 'b1', 'b4']
-    assert ids(intro.filter_tracks(['ソード・シールド'])) == ['a1', 'a2']
-    assert ids(intro.filter_tracks(['ソード・シールド'], ['フィールド'])) == ['a2']
+    # 曲名が「別バージョン」でも、リストに無ければふつうに出る（曲名からは決めない）
+    other = intro.IntroTrack('z1', '戦闘！野生ポケモン（別バージョン）', 'ソード・シールド', '戦闘')
+    assert not other.secret
 
 
 def test_works_match_by_a_part_of_the_name(library):
