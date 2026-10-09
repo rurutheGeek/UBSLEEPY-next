@@ -56,8 +56,6 @@ CRY_FILENAME_RE = re.compile(r"^cry-([0-9a-f]+)-([0-9a-f]+)\.ogg$")
 # 鳴き声クイズ: 投稿につける「もう一度再生」ボタン
 CRY_REPLAY_BUTTON_ID = "cryReplayButton"
 CRY_REPLAY_LABEL = "もう一度再生"
-# 聞き返しをDMで送れなかったとき、返信を見せておく秒数
-ASK_AGAIN_SECONDS = 10
 
 
 def cry_hash(name: str, kind: str, nonce: str) -> str:
@@ -492,17 +490,6 @@ class QuizSession:
             await self.rm.reply(f"答えは{answer}でした")
         await self.__disclose(False)
 
-    async def _ask_again(self, text: str):
-        """聞き返しを、回答した人にだけ見せる（ほかの人へのヒントにしない）。
-
-        ふつうのメッセージには本人限定の返信ができないので、回答文を添えてDMで送る。
-        DMを受け取らない人には、返信を短い時間だけ見せて消す。
-        """
-        try:
-            await self.rm.author.send(f"「{self.rawText or self.ansText}」→ {text}")
-        except discord.HTTPException:
-            await self.rm.reply(text, delete_after=ASK_AGAIN_SECONDS)
-
     async def __judge(self):
         ub.output_log(f"{self.quizName}: 正誤判定を実行")
 
@@ -556,23 +543,23 @@ class QuizSession:
             if isinstance(self.rm, discord.Message):
                 reaction = "❓"
                 if introVerdict == intro.AMBIGUOUS:
-                    await self._ask_again(
+                    await self.rm.reply(
                         "ほかの作品にも ある曲だロ。作品の略称もつけて答えてね"
                         "（`略称＋相手` のかたち。例: `BWシロナ`）")
                 elif introVerdict == intro.PARTIAL:
-                    await self._ask_again(
+                    await self.rm.reply(
                         "おしいロ！ もう少し くわしく答えてね")
                 elif introVerdict == intro.AMBIGUOUS_SONG:
                     axes = intro.distinguishers(self.track, self.ansText)
                     if axes:
-                        await self._ask_again(
+                        await self.rm.reply(
                             "その相手の曲は いくつかあるロ。"
                             f"{'も、'.join(axes)}も つけて答えてね")
                     else:
                         titles = "／".join(
                             f"`{title}`" for title in
                             intro.candidates(self.track, self.ansText))
-                        await self._ask_again(
+                        await self.rm.reply(
                             f"その相手の曲は いくつかあるロ（{titles}）。"
                             "どれか分かるように答えてね（`決戦`・地方名などをつける）")
                 else:

@@ -476,20 +476,11 @@ def test_an_answer_without_the_work_asks_for_it(monkeypatch, library):
     question, answer, reports, logs = _answer(monkeypatch, 'ジムリーダー')
 
     assert answer.reactions_added == ['❓']
-    assert '作品の略称' in answer.author.sent[0] and answer.replies == []  # 本人にだけ
-    assert answer.author.sent[0].startswith('「ジムリーダー」→')
+    assert '作品の略称' in answer.replies[0]
+    assert answer.author.sent == []  # DMは送らない
     assert question.edits == [] and reports == []  # 開示も戦績もまだ
     assert logs[0][2] is None
     assert logs[0][-1]['detail'] == intro.AMBIGUOUS  # 認識できなかった理由を残す
-
-
-def test_asking_again_falls_back_to_a_short_lived_reply(monkeypatch, library):
-    # DMを受け取らない人には、返信を少しの間だけ見せる
-    _question, answer, _reports, _logs = _answer(monkeypatch, 'ジムリーダー', direct_fails=True)
-
-    assert answer.author.sent == []
-    assert '作品の略称' in answer.replies[0]
-    assert answer.deleted_after == session_module.ASK_AGAIN_SECONDS
 
 
 def test_a_part_of_the_answer_gets_another_try(monkeypatch, library):
@@ -511,7 +502,7 @@ def test_a_part_of_the_answer_gets_another_try(monkeypatch, library):
     monkeypatch.setattr(intro, 'track_from_message', lambda message: academy)
     question, answer, reports, logs = _answer(monkeypatch, 'トレーナー')
     assert answer.reactions_added == ['❓']
-    assert 'おしい' in answer.author.sent[0]
+    assert 'おしい' in answer.replies[0]
     assert question.edits == [] and reports == [] and logs[0][2] is None
 
 
@@ -526,7 +517,7 @@ def test_an_answer_that_fits_several_songs_lists_them(monkeypatch, library):
     _question, answer, reports, _logs = _answer(monkeypatch, 'SVテーブルシティ')
 
     assert answer.reactions_added == ['❓']
-    assert '決戦も つけて答えてね' in answer.author.sent[0]
+    assert '決戦も つけて答えてね' in answer.replies[0]
     assert reports == []
 
 
