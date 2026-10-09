@@ -1041,5 +1041,5 @@ def test_the_disclosure_announces_the_next_quiz(monkeypatch):
         asyncio.run(q._QuizSession__disclose(False))
         authors.append(quiz_message.edits[-1]['embed'].author.name)
 
-    assert authors == ['tester さんがギブアップ\u3000BAKUSOKU MODE(連続出題) ON',
+    assert authors == ['tester さんがギブアップ ⏩連続出題ON',
                        'tester さんがギブアップ']

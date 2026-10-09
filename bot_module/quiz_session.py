@@ -705,7 +705,7 @@ class QuizSession:
 
         if self.state.bakusoku_mode:
             # 次の問題が出る予告。別の投稿にすると遅くなるので、この行に付ける
-            authorText += "　BAKUSOKU MODE(連続出題) ON"
+            authorText += " ⏩連続出題ON"
         self.quizEmbed.set_author(name=authorText)  # 回答者の情報を表示
 
         if self.quizName == "bq":
