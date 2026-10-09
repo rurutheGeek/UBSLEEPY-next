@@ -506,8 +506,27 @@ def test_an_answer_that_fits_several_songs_lists_them(monkeypatch, library):
     _question, answer, reports, _logs = _answer(monkeypatch, 'SVテーブルシティ')
 
     assert answer.reactions_added == ['❓']
-    assert '`テーブルシティ`／`決戦！テーブルシティ`' in answer.replies[0]
+    assert '決戦も つけて答えてね' in answer.replies[0]
     assert reports == []
+
+
+def test_the_johto_day_and_night_songs_are_told_apart():
+    work = 'ポケットモンスター 金・銀・クリスタル'
+    kanto = intro.IntroTrack('g1', '戦闘！野生ポケモン（カントー）', work, '戦闘')
+    day = intro.IntroTrack('g2', '戦闘！野生ポケモン（ジョウト）（昼）', work, '戦闘',
+                           aliases=('野生ポケモン', '野生'))
+    night = intro.IntroTrack('g3', '戦闘！野生ポケモン（ジョウト）（夜）', work, '戦闘')
+    tracks = [kanto, day, night]
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(intro, 'load_tracks', lambda: tracks)
+        assert intro.judge(day, 'GSジョウト野生') == intro.CORRECT  # 書かなければ昼
+        assert intro.judge(day, 'GS野生') == intro.CORRECT  # 別名で、書かなければジョウト
+        assert intro.judge(day, 'GSジョウト野生朝') == intro.CORRECT
+        assert intro.judge(night, 'GSジョウト野生夜') == intro.CORRECT
+        assert intro.judge(night, 'GSジョウト野生') == intro.AMBIGUOUS_SONG
+        assert intro.judge(kanto, 'GS野生') == intro.AMBIGUOUS_SONG
+        assert intro.judge(kanto, 'GSカントー野生') == intro.CORRECT
+        assert intro.distinguishers(night, 'GS野生') == ['地方', '時間帯']
 
 
 def test_another_title_is_wrong(monkeypatch, library):

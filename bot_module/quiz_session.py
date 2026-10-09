@@ -550,12 +550,18 @@ class QuizSession:
                     await self.rm.reply(
                         "おしいロ！ もう少し くわしく答えてね")
                 elif introVerdict == intro.AMBIGUOUS_SONG:
-                    titles = "／".join(
-                        f"`{title}`" for title in
-                        intro.candidates(self.track, self.ansText))
-                    await self.rm.reply(
-                        f"その相手の曲は いくつかあるロ（{titles}）。"
-                        "どれか分かるように答えてね（`決戦`・地方名などをつける）")
+                    axes = intro.distinguishers(self.track, self.ansText)
+                    if axes:
+                        await self.rm.reply(
+                            "その相手の曲は いくつかあるロ。"
+                            f"{'も、'.join(axes)}も つけて答えてね")
+                    else:
+                        titles = "／".join(
+                            f"`{title}`" for title in
+                            intro.candidates(self.track, self.ansText))
+                        await self.rm.reply(
+                            f"その相手の曲は いくつかあるロ（{titles}）。"
+                            "どれか分かるように答えてね（`決戦`・地方名などをつける）")
                 else:
                     await self.rm.reply(f"{self.ansText} は曲リストにありません")
         elif (
