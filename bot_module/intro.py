@@ -261,6 +261,9 @@ class IntroTrack:
         final = bool(_FINAL_HEAD.match(self.title))
         strong, loose = set(), set()
         named = {canon(name) for name in names}
+        for name in names:  # 「野生ポケモン(ガラル)」は ガラル野生 でも通す（地方は省かせない）
+            named |= {canon(core) for core in answer_cores(name)
+                      if any(place in core for place in answer_places(name))}
         for core in answer_cores(self.title):
             placed = not places or any(place in core for place in places)
             (strong if placed and not final else loose).add(canon(core))
@@ -355,16 +358,27 @@ class IntroTrack:
         （ネジキはPtとHGSS、ミクリはエメラルドとBW2、のように作品ごとに決まる）。
         曲名・戦う相手は、曲が流れるどの作品の略称とでも組み合わせられる。
         """
-        scopes = [(self.abbreviations, self._keys([*self.listed_aliases, *self.aliases]))]
+        keys = dict(self.native)
         for appears, aliases in self.appearances:
-            scopes.append((work_names(appears), self._keys(aliases)))
+            for key, strength in self._combined(work_names(appears),
+                                                self._keys(aliases)).items():
+                keys[key] = max(strength, keys.get(key, 0))
+        return keys
+
+    @cached_property
+    def native(self) -> dict:
+        """qualified のうち、原曲の作品の略称と組み合わせたもの。"""
+        return self._combined(
+            self.abbreviations, self._keys([*self.listed_aliases, *self.aliases]))
+
+    @staticmethod
+    def _combined(names, plain: dict) -> dict:
         keys = {}
-        for names, plain in scopes:
-            for abbreviation in {canon(a) for a in names} - {""}:
-                for key, strength in plain.items():
-                    for combined in (abbreviation + key, key + abbreviation,
-                                     abbreviation + "ノ" + key):
-                        keys[combined] = max(strength, keys.get(combined, 0))
+        for abbreviation in {canon(a) for a in names} - {""}:
+            for key, strength in plain.items():
+                for combined in (abbreviation + key, key + abbreviation,
+                                 abbreviation + "ノ" + key):
+                    keys[combined] = max(strength, keys.get(combined, 0))
         return keys
 
     def hint_value(self, index: str):
@@ -516,8 +530,13 @@ def judge(track, text: str) -> str:
     if mine == 3:
         return CORRECT  # 別名は、同じ作品のほかの曲と重なってもよい
     # 曲名から取り出した言い方どうしで比べる（別名で当たった曲は数えない）
-    rivals = [getattr(other, field)[key] for other in pool
-              if other.song != track.song and getattr(other, field)[key] < 3]
+    rivals = [other for other in pool
+              if (other.work, other.song) != (track.work, track.song)
+              and getattr(other, field)[key] < 3]
+    if field == "qualified" and key in track.native:
+        # その作品の曲なら、再録でその作品にも流れるだけの曲とは迷わない
+        rivals = [other for other in rivals if key in other.native]
+    rivals = [getattr(other, field)[key] for other in rivals]
     if any(strength >= mine for strength in rivals):
         return AMBIGUOUS_SONG
     return CORRECT

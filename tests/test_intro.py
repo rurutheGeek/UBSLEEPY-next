@@ -880,3 +880,16 @@ def test_build_uses_the_tags_when_present(monkeypatch, tmp_path):
 
     assert (row['title'], row['work'], row['category']) == (
         'テーブルシティ', 'ポケットモンスター スカーレット・バイオレット', 'フィールド')
+
+
+def test_a_song_of_the_work_wins_over_one_only_reused_there(monkeypatch):
+    oras = 'ポケモン オメガルビー・アルファサファイア'
+    own = intro.IntroTrack('g1', '戦闘！ディアルガ・パルキア', oras, '戦闘')
+    reused = intro.IntroTrack(
+        'g2', '戦闘！ディアルガ・パルキア', 'ポケモン ダイヤモンド&パール', '戦闘')
+    monkeypatch.setattr(intro, 'load_tracks', lambda: [own, reused])
+
+    # ORASの曲があるなら、再録でORASにも流れるだけのDPの曲とは迷わない
+    assert intro.judge(own, 'orasディアルガ・パルキア') == intro.CORRECT
+    assert intro.judge(reused, 'orasディアルガ・パルキア') == intro.AMBIGUOUS_SONG
+    assert intro.judge(reused, 'dpディアルガ・パルキア') == intro.CORRECT
