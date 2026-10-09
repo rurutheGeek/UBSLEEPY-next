@@ -428,11 +428,7 @@ class QuizSession:
             answer = self.ansList[0]
             if self.quizName == "introq" and self.ansZero.work:
                 answer += f"（{self.ansZero.work}）"  # 曲名だけでは作品が分からない
-            text = f"答えは{answer}でした"
-            if self.state.bakusoku_mode:
-                # 連続出題の予告。別の投稿にすると遅くなるので、この返信に付ける
-                text += "\n次のクイズを生成チュウ"
-            await self.rm.reply(text)
+            await self.rm.reply(f"答えは{answer}でした")
         await self.__disclose(False)
 
     async def __judge(self):
@@ -707,6 +703,9 @@ class QuizSession:
                 self.ansList[0]
             )  # self.ansZero['おなまえ']でもいいかも
 
+        if self.state.bakusoku_mode:
+            # 次の問題が出る予告。別の投稿にすると遅くなるので、この行に付ける
+            authorText += "　BAKUSOKU MODE(連続出題) ON"
         self.quizEmbed.set_author(name=authorText)  # 回答者の情報を表示
 
         if self.quizName == "bq":

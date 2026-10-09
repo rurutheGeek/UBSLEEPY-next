@@ -1025,25 +1025,21 @@ def test_a_name_does_not_answer_another_bots_quiz(monkeypatch):
     assert sessions == []
 
 
-def test_giving_up_announces_the_next_quiz_in_the_reply():
-    quiz_message = FakeQuizMessage()
-    q = _disclosing_quiz(quiz_message)
-    q.state.disclosing.add(quiz_message.id)  # 開示までは進めない（返信だけ見る）
-    replies = []
+def test_the_disclosure_announces_the_next_quiz(monkeypatch):
+    # 「生成チュウ」の投稿の代わりに、開示の行で次の問題が出ることを伝える
+    monkeypatch.setattr(session_module.ub, 'fetch_pokemon', lambda text: [])
+    authors = []
+    for mode in (True, False):
+        quiz_message = FakeQuizMessage()
+        q = _disclosing_quiz(quiz_message)
+        q.state.bakusoku_mode = mode
 
-    async def add_reaction(emoji):
-        pass
+        async def next_quiz():
+            pass
 
-    async def reply(text):
-        replies.append(text)
+        q._QuizSession__continue = next_quiz
+        asyncio.run(q._QuizSession__disclose(False))
+        authors.append(quiz_message.edits[-1]['embed'].author.name)
 
-    q.rm.add_reaction = add_reaction
-    q.rm.reply = reply
-
-    q.state.bakusoku_mode = True
-    asyncio.run(q._QuizSession__giveup())
-    q.state.bakusoku_mode = False
-    asyncio.run(q._QuizSession__giveup())
-
-    assert replies == ['答えはリザードンでした\n次のクイズを生成チュウ',
-                       '答えはリザードンでした']
+    assert authors == ['tester さんがギブアップ\u3000BAKUSOKU MODE(連続出題) ON',
+                       'tester さんがギブアップ']
