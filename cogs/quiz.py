@@ -411,6 +411,9 @@ class Quiz(commands.Cog):
         if not quiz_names:
             return
         async for quizMessage in message.channel.history(limit=10):
+            # ほかのBot（テスト用など）が出したクイズには反応しない
+            if quizMessage.author != self.bot.user:
+                continue
             if not quizMessage.embeds:
                 continue
             footer = quizMessage.embeds[0].footer.text or ""

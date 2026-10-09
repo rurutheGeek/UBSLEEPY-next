@@ -578,10 +578,11 @@ def test_voice_channel_for_detects_a_voice_chat():
 
 
 def test_a_name_in_the_voice_text_chat_answers_the_cry_quiz(monkeypatch):
+    bot = FakeBot()
     channel = FakeVoiceChannel()
     embed = discord.Embed()
     embed.set_footer(text='No.26 ポケモンクイズ - cryq')
-    channel.messages.append(FakeMessage(author=FakeUser(), embeds=[embed], channel=channel))
+    channel.messages.append(FakeMessage(author=bot.user, embeds=[embed], channel=channel))
     message = FakeMessage(author=FakeUser(), content='リザードン', channel=channel)
 
     sessions = []
@@ -596,7 +597,7 @@ def test_a_name_in_the_voice_text_chat_answers_the_cry_quiz(monkeypatch):
             self.responses.append(response)
 
     monkeypatch.setattr(quiz_module, 'QuizSession', FakeSession)
-    cog = quiz_module.Quiz(FakeBot())
+    cog = quiz_module.Quiz(bot)
 
     asyncio.run(cog.on_message(message))
 
@@ -995,3 +996,54 @@ def test_the_acq_button_on_a_finished_quiz_is_ignored(monkeypatch):
 
     assert responses == []
     assert interaction.response.deferred
+
+
+def test_a_name_does_not_answer_another_bots_quiz(monkeypatch):
+    # 同じチャンネルにテスト用のBotがいても、そのクイズの判定はしない
+    channel = FakeVoiceChannel()
+    embed = discord.Embed()
+    embed.set_footer(text='No.26 ポケモンクイズ - cryq')
+    other_bot = FakeUser(user_id=11, name='test-bot', bot=True)
+    channel.messages.append(FakeMessage(author=other_bot, embeds=[embed], channel=channel))
+    message = FakeMessage(author=FakeUser(), content='リザードン', channel=channel)
+    monkeypatch.setattr(quiz_module.ub, 'fetch_pokemon', lambda text: [object()])
+    monkeypatch.setattr(quiz_module.ub, 'output_warning', lambda text: None)
+
+    sessions = []
+
+    class FakeSession:
+        def __init__(self, bot, name, state):
+            sessions.append(self)
+
+        async def try_response(self, response):
+            pass
+
+    monkeypatch.setattr(quiz_module, 'QuizSession', FakeSession)
+
+    asyncio.run(quiz_module.Quiz(FakeBot()).on_message(message))
+
+    assert sessions == []
+
+
+def test_giving_up_announces_the_next_quiz_in_the_reply():
+    quiz_message = FakeQuizMessage()
+    q = _disclosing_quiz(quiz_message)
+    q.state.disclosing.add(quiz_message.id)  # 開示までは進めない（返信だけ見る）
+    replies = []
+
+    async def add_reaction(emoji):
+        pass
+
+    async def reply(text):
+        replies.append(text)
+
+    q.rm.add_reaction = add_reaction
+    q.rm.reply = reply
+
+    q.state.bakusoku_mode = True
+    asyncio.run(q._QuizSession__giveup())
+    q.state.bakusoku_mode = False
+    asyncio.run(q._QuizSession__giveup())
+
+    assert replies == ['答えはリザードンでした\n次のクイズを生成チュウ',
+                       '答えはリザードンでした']

@@ -428,7 +428,11 @@ class QuizSession:
             answer = self.ansList[0]
             if self.quizName == "introq" and self.ansZero.work:
                 answer += f"（{self.ansZero.work}）"  # 曲名だけでは作品が分からない
-            await self.rm.reply(f"答えは{answer}でした")
+            text = f"答えは{answer}でした"
+            if self.state.bakusoku_mode:
+                # 連続出題の予告。別の投稿にすると遅くなるので、この返信に付ける
+                text += "\n次のクイズを生成チュウ"
+            await self.rm.reply(text)
         await self.__disclose(False)
 
     async def __judge(self):
