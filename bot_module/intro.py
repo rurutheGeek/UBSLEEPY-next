@@ -326,7 +326,8 @@ def answer_cores(title: str) -> list:
                 joined = first + second
                 cores += [joined + core, joined + "の" + core, core + joined,
                           first + core + second]
-    cores += [core.replace("昼", "朝") for core in cores if "昼" in core]
+    if "昼" in places:  # （昼）の曲は 朝 と書いてもよい（曲名に昼を含むだけの曲は変えない）
+        cores += [core.replace("昼", "朝") for core in cores if "昼" in core]
     return list(dict.fromkeys(core for core in cores if core))
 
 
@@ -365,7 +366,7 @@ class IntroTrack:
             named |= {canon(core) for core in answer_cores(name)
                       if any(place in core for place in answer_places(name))}
         for core in answer_cores(self.title):
-            shown = core.replace("朝", "昼")
+            shown = core.replace("朝", "昼") if "昼" in places else core
             placed = all(place in shown or place in _DEFAULT_PLACES for place in places)
             (strong if placed and not final else loose).add(canon(core))
             prefixed = _FINAL_PREFIX.match(core)
@@ -650,19 +651,27 @@ _REGIONS = ("カントー", "ジョウト", "ホウエン", "シンオウ", "イ
 def distinguishers(track, text: str) -> list:
     """聞き返すときに、答えへ足してほしいもの（決戦・地方・時間帯）。
 
-    候補の曲名どうしで違うところだけを返す。これで区別できなければ空。
+    出題中の曲と候補の曲で違うところだけを返す（カントーの曲に時間帯は求めない）。
+    これで区別できなければ空。
     """
     titles = candidates(track, text)
     if len(titles) < 2:
         return []
+
+    def traits(title: str) -> tuple:
+        places = set(answer_places(title))
+        return (bool(_FINAL_HEAD.match(title)), frozenset(places & set(_REGIONS)),
+                frozenset(places & {"昼", "夜"}))
+
+    final, region, time = traits(track.title)
+    others = [traits(title) for title in titles]
     axes = []
-    if len({bool(_FINAL_HEAD.match(title)) for title in titles}) > 1:
+    if any(other[0] != final for other in others):
         axes.append("決戦")
-    places = [set(answer_places(title)) for title in titles]
-    if len({frozenset(p & {"昼", "夜"}) for p in places}) > 1:
+    if any(other[1] != region for other in others):
+        axes.append("地方")
+    if any(other[1] == region and other[2] != time for other in others):
         axes.append("時間帯")
-    if len({frozenset(p & set(_REGIONS)) for p in places}) > 1:
-        axes.insert(1 if axes[:1] == ["決戦"] else 0, "地方")
     if not axes:  # 南の野生ポケモン・東の野生ポケモン のように、頭の言葉だけが違う
         opponents = [answer_cores(title)[0] for title in titles]
         suffix = os.path.commonprefix([name[::-1] for name in opponents])[::-1]

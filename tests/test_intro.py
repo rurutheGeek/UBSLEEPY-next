@@ -539,6 +539,9 @@ def test_the_johto_day_and_night_songs_are_told_apart():
         assert intro.judge(kanto, 'GS野生') == intro.AMBIGUOUS_SONG
         assert intro.judge(kanto, 'GSカントー野生') == intro.CORRECT
         assert intro.distinguishers(night, 'GS野生') == ['地方', '時間帯']
+        assert intro.distinguishers(kanto, 'GS野生') == ['地方']  # カントーに昼夜は無い
+    # 曲名に昼を含むだけの曲は、朝に読み替えない
+    assert not any('朝' in core for core in intro.answer_cores('戦闘！真昼の決闘'))
 
 
 def test_another_title_is_wrong(monkeypatch, library):
