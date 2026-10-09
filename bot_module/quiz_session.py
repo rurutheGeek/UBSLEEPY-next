@@ -26,6 +26,13 @@ from bot_module.save import SaveError
 # 判定ログ（quiz_log）の judge に入れる、回答ではない操作
 LOG_GIVEUP = "ギブアップ"
 LOG_HINT = "ヒント"
+# 判定ログに残す入力の原文の長さ（クイズへの返信なら何でも届くので、長文は切る）
+LOG_RAW_LENGTH = 200
+
+
+def pokemon_id(pokemon) -> str:
+    """判定ログ用のポケモンのID（図鑑番号-フォーム）。"""
+    return f"{pokemon.ndex_number}-{pokemon.form_id}"
 
 # 鳴き声クイズの音源。tools/fetch_cries.py が置き、クイズはローカル参照だけする。
 # latest=あたらしい鳴き声（全種）、legacy=BWまでの古い鳴き声（1〜649）。
@@ -165,6 +172,7 @@ class QuizSession:
         quizEmbed.set_footer(text=f"No.26 ポケモンクイズ - {self.quizName}")
         quizView = None
         voicePath = None  # ボイスチャンネルで流す音源（鳴き声・イントロ）
+        qDatas = track = cryKind = None  # 出題のもと（出題ログに残す）
         # 必要な要素をクイズごとに編集
 
         if self.quizName == "bq":
@@ -314,8 +322,46 @@ class QuizSession:
             content=quizContent, file=quizFile, embed=quizEmbed, view=quizView
         )
 
+        await asyncio.to_thread(
+            self.__log_post, qDatas, track, cryKind, quizContent, quizEmbed)
+
         if voicePath is not None and voiceChannel is not None:
             await self.__play_cry(voiceChannel, voicePath)
+
+    def __conditions(self, cryKind) -> dict:
+        """出題ログに残す、そのときの出題条件。"""
+        conditions = {"連続出題": self.state.bakusoku_mode}
+        if self.quizName == "bq":
+            conditions["絞り込み"] = self.state.bq_filter_dict
+        elif self.quizName == "cryq":
+            conditions["モード"] = self.state.cry_mode
+            conditions["絞り込み"] = self.state.cry_filter_dict
+            conditions["鳴き声"] = cryKind
+        elif self.quizName == "introq":
+            conditions["作品"] = list(self.state.intro_works)
+            conditions["区分"] = list(self.state.intro_categories)
+            conditions["シークレット"] = self.state.intro_secret
+        return conditions
+
+    def __log_post(self, pokemon, track, cryKind, quizContent, quizEmbed):
+        """出題を記録する。question は判定ログ（__log）と同じ書き方にそろえる。"""
+        if track is not None:
+            answer = track.title + (f"（{track.work}）" if track.work else "")
+            question, answer_id = answer, track.id
+        elif pokemon is not None:
+            answer, answer_id = pokemon.name, pokemon_id(pokemon)
+            if self.quizName == "bq":
+                question = quizContent.split(" ")[0]
+            elif self.quizName in ("etojq", "jtoeq", "ctojq"):
+                question = re.findall(r"^(.+)\s->", quizEmbed.description)[0]
+            else:
+                question = pokemon.name
+        else:
+            return
+        guild_id = getattr(getattr(self.qm, "guild", None), "id", 0) or 0
+        save.add_quiz_post(
+            guild_id, self.quizName, getattr(self.qm, "id", None),
+            question, answer, answer_id, self.__conditions(cryKind))
 
     async def __play_cry(self, voice_channel, path):
         """ボイスチャンネルで鳴き声を流す（全員が同時に聞ける）。
@@ -342,15 +388,20 @@ class QuizSession:
             self.rm = response
             self.qm = response.reference.resolved
             self.ansText = ub.format_text(response.content)
+            self.rawText = response.content
             self.opener = self.rm.author
         elif isinstance(response, discord.Interaction):
             self.rm = response
             self.qm = response.message
             self.ansText = self.rm.data["custom_id"].split("_")[1]
+            self.rawText = self.ansText
             self.opener = self.rm.user
             # customIDが"acq_こうげき/とくこう/同値"のようなかたちを想定
 
         self.quizEmbed = self.qm.embeds[0]
+        # この時点で出ているヒント（判定ログに残す。ヒントを足す前に控える）
+        self.hintsShown = [field.name for field in self.quizEmbed.fields]
+        self.hintGiven = None
         if self.quizName == "bq":
             # 取得し直したEmbedの画像はCDNのURLになっている。そのまま編集すると
             # グラフが埋め込みから外れて外に出るので、添付への参照に戻す
@@ -425,7 +476,7 @@ class QuizSession:
         elif self.ansText in hints:
             await self.__hint()
             await asyncio.to_thread(
-                self.__log, LOG_HINT, self.ansList[0], True)
+                self.__log, LOG_HINT, self.ansList[0], True, self.hintGiven)
         else:
             await self.__judge()
 
@@ -539,7 +590,10 @@ class QuizSession:
                 if isinstance(self.rm, discord.Message):
                     await self.rm.reply("戦績の保存に失敗しました")
 
-        await asyncio.to_thread(self.__log, judge, self.ansList[0])
+        await asyncio.to_thread(
+            self.__log, judge, self.ansList[0], None,
+            introVerdict if self.quizName == "introq" else None,
+            pokemon_id(repPokeData) if repPokeData is not None else None)
 
     async def __hint(self):
         ub.output_log(f"{self.quizName}: ヒント表示を実行")
@@ -656,6 +710,7 @@ class QuizSession:
             except discord.errors.Forbidden:
                 pass
 
+        self.hintGiven = hintIndex
         await self.rm.reply(f"{hintIndex}は{hintValue}です")
 
     async def __disclose(self, tf, answered=None):
@@ -867,7 +922,17 @@ class QuizSession:
                 ub.output_warning(f"不明なクイズ識別子(imageLink): {self.quizName}")
         return link
 
-    def __log(self, judge, exAns, recognized=None):
+    def __answer_id(self) -> str:
+        """正解のID。種族値クイズは同じ種族値のポケモンがみな正解なので、全部並べる。"""
+        if self.quizName == "introq":
+            return self.ansZero.id
+        if self.quizName == "bq":
+            return "|".join(
+                pokemon_id(p) for p in get_pokedex().records
+                if p.stats == self.ansZero.stats)
+        return pokemon_id(self.ansZero)
+
+    def __log(self, judge, exAns, recognized=None, detail=None, input_id=None):
         # 判定ログはDB（ubsleepy.quiz_log）へ。DBが無い手元はCSV（開発用）
         # 分析（間違いやすい問題・書き間違い・本人の苦手）に使う
         logPath = f"log/{self.quizName}log.csv"
@@ -883,4 +948,9 @@ class QuizSession:
             guild_id, self.quizName, judge, question, self.ansText,
             recognized, csv_path=logPath, answer=exAns,
             quiz_message_id=getattr(self.qm, "id", None),
-            user_id=getattr(self.opener, "id", None))
+            user_id=getattr(self.opener, "id", None),
+            answer_id=self.__answer_id(),
+            input_raw=(self.rawText or "")[:LOG_RAW_LENGTH],
+            input_id=input_id,
+            hints="|".join(self.hintsShown),
+            detail=detail)

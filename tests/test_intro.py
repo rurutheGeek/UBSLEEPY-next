@@ -444,6 +444,11 @@ def test_the_right_title_is_correct(monkeypatch, library):
     assert logs[0][-1]['answer'] == '戦闘！ジムリーダー（ソード・シールド）'
     assert logs[0][-1]['quiz_message_id'] == question.id
     assert logs[0][-1]['user_id'] == answer.author.id  # 本人の苦手の集計に使う
+    # データセット用: 曲ID・入力の原文・判定の内訳・その時点のヒント
+    assert logs[0][-1]['answer_id'] == 'a1'
+    assert logs[0][-1]['input_raw'] == '剣盾じむりーだー'
+    assert logs[0][-1]['detail'] == intro.CORRECT
+    assert logs[0][-1]['hints'] == ''
 
 
 def test_an_alias_is_correct(monkeypatch, library):
@@ -460,6 +465,7 @@ def test_an_answer_without_the_work_asks_for_it(monkeypatch, library):
     assert '作品の略称' in answer.replies[0]
     assert question.edits == [] and reports == []  # 開示も戦績もまだ
     assert logs[0][2] is None
+    assert logs[0][-1]['detail'] == intro.AMBIGUOUS  # 認識できなかった理由を残す
 
 
 def test_a_part_of_the_answer_gets_another_try(monkeypatch, library):
@@ -533,6 +539,14 @@ def test_asking_for_a_hint_is_logged(monkeypatch, library):
 
     assert reports == []
     assert [log[2] for log in logs] == ['ヒント']
+    assert logs[0][-1]['detail'] == '作品'  # どのヒントを出したか
+    assert logs[0][-1]['hints'] == ''  # 出す前には何も出ていなかった
+
+
+def test_a_long_reply_is_cut_in_the_log(monkeypatch, library):
+    _question, _answer_message, _reports, logs = _answer(monkeypatch, 'あ' * 500)
+
+    assert len(logs[0][-1]['input_raw']) == session_module.LOG_RAW_LENGTH
 
 
 def test_the_hint_is_the_work(library):

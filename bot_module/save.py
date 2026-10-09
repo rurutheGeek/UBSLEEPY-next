@@ -9,6 +9,7 @@ pkdbサーバーの `ubsleepy` DB へ1件ずつupsertする。CSVのような
 """
 from __future__ import annotations
 
+import json
 import os
 from pathlib import Path
 
@@ -62,7 +63,32 @@ CREATE TABLE IF NOT EXISTS quiz_log (
 ALTER TABLE quiz_log ADD COLUMN IF NOT EXISTS answer TEXT;
 ALTER TABLE quiz_log ADD COLUMN IF NOT EXISTS quiz_message_id BIGINT;
 ALTER TABLE quiz_log ADD COLUMN IF NOT EXISTS user_id BIGINT;
-CREATE INDEX IF NOT EXISTS quiz_log_user_idx ON quiz_log (user_id, quiz_name)
+CREATE INDEX IF NOT EXISTS quiz_log_user_idx ON quiz_log (user_id, quiz_name);
+-- データセット用の列。
+-- answer_id=正解のID（図鑑番号-フォーム、曲ID。正解が複数なら | 区切り）、
+-- input_raw=入力の原文、input_id=入力をどのポケモンと解釈したか、
+-- hints=その時点で出ていたヒント（| 区切り）、
+-- detail=ヒントなら出した項目、イントロなら判定の内訳（ambiguous など）
+ALTER TABLE quiz_log ADD COLUMN IF NOT EXISTS answer_id TEXT;
+ALTER TABLE quiz_log ADD COLUMN IF NOT EXISTS input_raw TEXT;
+ALTER TABLE quiz_log ADD COLUMN IF NOT EXISTS input_id TEXT;
+ALTER TABLE quiz_log ADD COLUMN IF NOT EXISTS hints TEXT;
+ALTER TABLE quiz_log ADD COLUMN IF NOT EXISTS detail TEXT;
+-- 出題の記録（回答が付かなかった出題も残す）。quiz_log とは quiz_message_id でつながる。
+-- answer / answer_id は出題のもとになった1匹（1曲）、conditions はそのときの出題条件（JSON）
+CREATE TABLE IF NOT EXISTS quiz_post (
+    id BIGSERIAL PRIMARY KEY,
+    guild_id BIGINT NOT NULL,
+    quiz_name TEXT NOT NULL,
+    at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    quiz_message_id BIGINT,
+    question TEXT,
+    answer TEXT,
+    answer_id TEXT,
+    conditions TEXT,
+    bot_version TEXT
+);
+CREATE INDEX IF NOT EXISTS quiz_post_message_idx ON quiz_post (quiz_message_id)
 """
 
 # ランキング・順位をギルド内で値順に引くための索引。
@@ -256,15 +282,35 @@ class PostgresSaveStore:
                      question: str, answer_input: str, recognized: bool,
                      answer: str | None = None,
                      quiz_message_id: int | None = None,
-                     user_id: int | None = None) -> None:
+                     user_id: int | None = None,
+                     answer_id: str | None = None,
+                     input_raw: str | None = None,
+                     input_id: str | None = None,
+                     hints: str | None = None,
+                     detail: str | None = None) -> None:
         """クイズの判定を1行残す。"""
         self._connection_or_connect().execute(
             "INSERT INTO quiz_log "
             "(guild_id, quiz_name, judge, question, answer_input, recognized, "
-            "answer, quiz_message_id, user_id) "
-            "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)",
+            "answer, quiz_message_id, user_id, "
+            "answer_id, input_raw, input_id, hints, detail) "
+            "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
             (guild_id, quiz_name, judge, question, answer_input, recognized,
-             answer, quiz_message_id, user_id),
+             answer, quiz_message_id, user_id,
+             answer_id, input_raw, input_id, hints, detail),
+        )
+
+    def add_quiz_post(self, guild_id: int, quiz_name: str, quiz_message_id: int | None,
+                      question: str, answer: str, answer_id: str,
+                      conditions: str, bot_version: str | None) -> None:
+        """出題を1行残す。"""
+        self._connection_or_connect().execute(
+            "INSERT INTO quiz_post "
+            "(guild_id, quiz_name, quiz_message_id, question, answer, answer_id, "
+            "conditions, bot_version) "
+            "VALUES (%s, %s, %s, %s, %s, %s, %s, %s)",
+            (guild_id, quiz_name, quiz_message_id, question, answer, answer_id,
+             conditions, bot_version),
         )
 
     def weak_questions(self, user_id: int, quiz_name: str, limit: int = 10) -> list:
@@ -516,13 +562,16 @@ def quiz_log_csv(csv_path, quiz_name, judge, question, answer_input, recognized)
 
 
 def add_quiz_log(guild_id, quiz_name, judge, question, answer_input, recognized,
-                 csv_path=None, answer=None, quiz_message_id=None, user_id=None):
+                 csv_path=None, answer=None, quiz_message_id=None, user_id=None,
+                 answer_id=None, input_raw=None, input_id=None, hints=None,
+                 detail=None):
     """クイズの判定ログを残す。DBが無ければCSV（開発用）。
 
     judge は 正答／誤答／None（入力を認識できなかった）のほか、
     ギブアップ・ヒント（回答ではない操作）。
-    answer（正解の表記）・quiz_message_id（クイズの投稿）・user_id（回答した人）は
-    DBにだけ残す。
+    answer（正解の表記）・quiz_message_id（クイズの投稿）・user_id（回答した人）と、
+    データセット用の answer_id・input_raw・input_id・hints・detail は DBにだけ残す
+    （意味は CREATE_SQL のコメント）。
     ログは補助なので、失敗してもクイズは止めない（エラーログだけ残す）。
     """
     store = get_store()
@@ -532,9 +581,34 @@ def add_quiz_log(guild_id, quiz_name, judge, question, answer_input, recognized,
     try:
         _call(store, "add_quiz_log", int(guild_id), quiz_name, judge, question, answer_input,
                            recognized, answer, quiz_message_id,
-                           int(user_id) if user_id is not None else None)
+                           int(user_id) if user_id is not None else None,
+                           answer_id, input_raw, input_id, hints, detail)
     except Exception as error:
         logger.error(f"クイズログの保存に失敗しました\n{error}")
+        reset_store()
+
+
+def bot_version() -> str | None:
+    """動いているイメージのコミットID（先頭12文字）。手元では None。"""
+    return (os.environ.get("UBSLEEPY_VERSION") or "")[:12] or None
+
+
+def add_quiz_post(guild_id, quiz_name, quiz_message_id, question, answer, answer_id,
+                  conditions: dict) -> None:
+    """出題を記録する（DBだけ。手元のCSVには残さない）。
+
+    回答が付かなかった出題も数えられるようにする。失敗してもクイズは止めない。
+    """
+    store = get_store()
+    if store is None:
+        return
+    try:
+        _call(store, "add_quiz_post", int(guild_id), quiz_name, quiz_message_id,
+              question, answer, answer_id,
+              json.dumps(conditions, ensure_ascii=False, sort_keys=True),
+              bot_version())
+    except Exception as error:
+        logger.error(f"出題ログの保存に失敗しました\n{error}")
         reset_store()
 
 
