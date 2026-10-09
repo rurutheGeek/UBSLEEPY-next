@@ -510,6 +510,18 @@ def test_an_answer_that_fits_several_songs_lists_them(monkeypatch, library):
     assert reports == []
 
 
+def test_songs_that_differ_by_a_leading_place_ask_for_the_place(monkeypatch):
+    work = 'ポケットモンスター スカーレット・バイオレット'
+    south = intro.IntroTrack('w1', '戦闘！南の野生ポケモン', work, '戦闘')
+    east = intro.IntroTrack('w2', '戦闘！東の野生ポケモン', work, '戦闘')
+    monkeypatch.setattr(intro, 'candidates', lambda track, text: [south.title, east.title])
+    assert intro.distinguishers(south, '野生ポケモン') == ['場所']
+    # 頭の言葉が長い（相手が違う）ときは場所と言わず、曲名を見せる
+    other = intro.IntroTrack('w3', '戦闘！ゼクロム・レシラム', work, '戦闘')
+    monkeypatch.setattr(intro, 'candidates', lambda track, text: [south.title, other.title])
+    assert intro.distinguishers(south, '野生ポケモン') == []
+
+
 def test_the_johto_day_and_night_songs_are_told_apart():
     work = 'ポケットモンスター 金・銀・クリスタル'
     kanto = intro.IntroTrack('g1', '戦闘！野生ポケモン（カントー）', work, '戦闘')

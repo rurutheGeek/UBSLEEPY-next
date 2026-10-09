@@ -663,6 +663,13 @@ def distinguishers(track, text: str) -> list:
         axes.append("時間帯")
     if len({frozenset(p & set(_REGIONS)) for p in places}) > 1:
         axes.insert(1 if axes[:1] == ["決戦"] else 0, "地方")
+    if not axes:  # 南の野生ポケモン・東の野生ポケモン のように、頭の言葉だけが違う
+        opponents = [answer_cores(title)[0] for title in titles]
+        suffix = os.path.commonprefix([name[::-1] for name in opponents])[::-1]
+        heads = {name[:len(name) - len(suffix)] for name in opponents}
+        if len(suffix) >= 2 and len(heads) == len(opponents) and all(
+                1 <= len(head) <= 3 for head in heads):
+            axes.append("場所")
     return axes
 
 
