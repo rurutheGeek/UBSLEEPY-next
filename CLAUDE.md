@@ -57,7 +57,7 @@ python debug_cli.py                  # 対話モード（q bq → answer / hint 
 
 - `cogs/quiz.py` の Cog が `QuizState`（出題条件・連続出題モードなど。再起動でリセット）を持ち、`bot_module/quiz_session.py` の `QuizSession` が出題・回答受付・判定・開示を行う。
 - 出題中のクイズはメモリに持たず、**クイズの投稿そのものから復元する**。Embed のフッター `No.26 ポケモンクイズ - <種別>` でクイズの投稿と種別を見分け、開示が済むと末尾に `(done)` が付く。回答はクイズへの返信か、チャンネルにそのまま書かれた名前（直近10件から未回答のクイズを探す）で受ける。鳴き声・イントロは添付ファイル名が `cry-<nonce>-<ハッシュ>.ogg` で、ハッシュに答えを混ぜてある（ファイル名から答えは読めないが、候補と照合すれば逆算できる）。
-- 回答・ギブアップ・ヒントのたびに判定ログ（`quiz_log` テーブル。DBが無ければ `log/<種別>log.csv`）へ1行残す（DBには回答者のユーザーIDも入る）。`/quizrecord` はここから苦手な問題を出す（戦績の数はセーブデータから）。全体の集計は shake-cloud の Botポータル（`stacks/bot-portal/app/quizlog.py`、「クイズ分析」タブ）が読むので、列や `judge` の値を変えるときはそちらも合わせる。保存する内容を変えたら `docs/privacy.md` も直す。
+- 回答・ギブアップ・ヒントのたびに判定ログ（`quiz_log` テーブル。DBが無ければ `log/<種別>log.csv`）へ1行残す（DBには回答者のユーザーIDも入る）。出題のたびに `quiz_post` テーブルへも1行残す（出題条件・Botの版つき。回答の付かなかった出題を数えるため。`quiz_message_id` で `quiz_log` とつながる）。列の意味は `bot_module/save.py` の `CREATE_SQL` のコメントにある。`/quizrecord` はここから苦手な問題を出す（戦績の数はセーブデータから）。全体の集計は shake-cloud の Botポータル（`stacks/bot-portal/app/quizlog.py`、「クイズ分析」タブ）が読むので、列や `judge` の値を変えるときはそちらも合わせる。保存する内容を変えたら `docs/privacy.md` も直す。
 - 音源（`resource/cry/`・`resource/intro/`）と画像（`resource/image/`）は Git に入れない。`tools/fetch_cries.py`・`tools/build_intro_clips.py`（ffmpeg が必要）で用意する。
 
 ### イントロクイズの回答リスト

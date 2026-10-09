@@ -1123,3 +1123,45 @@ def test_quizrecord_without_the_quiz_log_still_shows_the_rate(monkeypatch):
         embed = sent[-1][1]["embed"]
         assert "正答率: 75%" in embed.description
         assert "苦手な問題" not in embed.description
+
+
+def test_a_post_is_logged_with_the_source_and_the_conditions(monkeypatch, tmp_path):
+    posts = []
+    monkeypatch.setattr(session_module.save, 'add_quiz_post',
+                        lambda *args: posts.append(args))
+    session = _cry_session(monkeypatch, tmp_path, ('latest',))
+    channel = FakeChannel()
+    asyncio.run(session.post(channel))
+
+    _guild, quiz_name, message_id, question, answer, answer_id, conditions = posts[0]
+    assert (quiz_name, question, answer) == ('cryq', 'リザードン', 'リザードン')
+    assert message_id == getattr(session.qm, 'id', None)
+    assert answer_id == session_module.pokemon_id(_pokemon())
+    assert conditions == {'連続出題': True, 'モード': 'latest',
+                          '絞り込み': {}, '鳴き声': 'latest'}
+
+
+def test_a_post_that_was_not_sent_is_not_logged(monkeypatch):
+    posts = []
+    monkeypatch.setattr(session_module.save, 'add_quiz_post',
+                        lambda *args: posts.append(args))
+    monkeypatch.setattr(session_module, "get_pokedex", lambda: FakePokedex())
+
+    asyncio.run(_quiz().post(FakeChannel()))  # 条件に合うポケモンがいない
+
+    assert posts == []
+
+
+def test_bq_log_lists_every_pokemon_with_the_same_stats(monkeypatch):
+    # 同じ種族値のポケモンはみな正解。IDも全部残す
+    first = _pokemon()
+    twin = _pokemon(ndex_number='9999', name='そっくり')
+
+    class Twins:
+        records = [first, twin]
+
+    monkeypatch.setattr(session_module, 'get_pokedex', lambda: Twins())
+    q = _quiz()
+    q.ansZero = first
+
+    assert q._QuizSession__answer_id() == '0006-00|9999-00'

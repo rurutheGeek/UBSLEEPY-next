@@ -75,18 +75,53 @@ def test_quiz_log_store_inserts():
 
     insert = [c for c in connection.calls if "INSERT INTO quiz_log" in c[0]][0]
     assert insert[1] == (
-        999, "cryq", "正答", "リザードン", "リザードン", True, None, None, None)
+        999, "cryq", "正答", "リザードン", "リザードン", True, None, None, None,
+        None, None, None, None, None)
 
 
 def test_quiz_log_store_keeps_answer_and_quiz_message():
     store, connection = _fake_store()
 
     store.add_quiz_log(999, "ctojq", "誤答", "夢夢蝕", "ムウマ", True,
-                       answer="ムシャーナ", quiz_message_id=12345, user_id=42)
+                       answer="ムシャーナ", quiz_message_id=12345, user_id=42,
+                       answer_id="0518-00", input_raw="むうま", input_id="0200-00",
+                       hints="タイプ1|分類", detail=None)
 
     insert = [c for c in connection.calls if "INSERT INTO quiz_log" in c[0]][0]
     assert insert[1] == (
-        999, "ctojq", "誤答", "夢夢蝕", "ムウマ", True, "ムシャーナ", 12345, 42)
+        999, "ctojq", "誤答", "夢夢蝕", "ムウマ", True, "ムシャーナ", 12345, 42,
+        "0518-00", "むうま", "0200-00", "タイプ1|分類", None)
+
+
+def test_quiz_post_is_stored_with_its_conditions_and_version(monkeypatch):
+    store, connection = _fake_store()
+    monkeypatch.setattr(save, "get_store", lambda: store)
+    monkeypatch.setenv("UBSLEEPY_VERSION", "28483ba12bda65aa16b13fbeec7c06a9f70ead43")
+
+    save.add_quiz_post(999, "bq", 12345, "78-84-78-109-85-100", "リザードン",
+                       "0006-00", {"絞り込み": {"地方": ["カントー"]}, "連続出題": True})
+
+    sql, params = [c for c in connection.calls if "INSERT INTO quiz_post" in c[0]][0]
+    assert params[:6] == (999, "bq", 12345, "78-84-78-109-85-100", "リザードン", "0006-00")
+    assert params[6] == '{"絞り込み": {"地方": ["カントー"]}, "連続出題": true}'
+    assert params[7] == "28483ba12bda"
+
+
+def test_quiz_post_without_the_database_is_skipped(monkeypatch):
+    monkeypatch.setattr(save, "get_store", lambda: None)
+
+    save.add_quiz_post(999, "bq", 1, "q", "a", "0006-00", {})  # 例外にならない
+
+
+def test_quiz_post_failure_does_not_raise(monkeypatch):
+    class BrokenStore:
+        def add_quiz_post(self, *args):
+            raise RuntimeError("接続失敗")
+
+    monkeypatch.setattr(save, "get_store", lambda: BrokenStore())
+    monkeypatch.setattr(save, "reset_store", lambda: None)
+
+    save.add_quiz_post(999, "bq", 1, "q", "a", "0006-00", {})
 
 
 def test_weak_questions_are_scoped_to_one_user_and_quiz():
@@ -120,6 +155,9 @@ def test_quiz_log_table_gets_analysis_columns():
     assert "ADD COLUMN IF NOT EXISTS answer TEXT" in save.CREATE_SQL
     assert "ADD COLUMN IF NOT EXISTS quiz_message_id BIGINT" in save.CREATE_SQL
     assert "ADD COLUMN IF NOT EXISTS user_id BIGINT" in save.CREATE_SQL
+    for column in ("answer_id", "input_raw", "input_id", "hints", "detail"):
+        assert f"ADD COLUMN IF NOT EXISTS {column} TEXT" in save.CREATE_SQL
+    assert "CREATE TABLE IF NOT EXISTS quiz_post" in save.CREATE_SQL
 
 
 def test_quiz_log_falls_back_to_csv(monkeypatch, tmp_path):

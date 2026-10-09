@@ -17,4 +17,8 @@ RUN pip install --no-cache-dir -r setup/requirements.txt
 
 COPY . .
 
+# 動いているコミットID（出題ログに残す）。GitHub Actions がビルド時に渡す。
+ARG GIT_SHA=""
+ENV UBSLEEPY_VERSION=$GIT_SHA
+
 CMD ["python", "main.py"]
