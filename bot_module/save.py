@@ -443,13 +443,38 @@ def reset_store() -> None:
     _STORE = None
 
 
+def _connection_lost(error) -> bool:
+    """接続そのものが切れた失敗か（DBの再起動・ネットワーク断など）。"""
+    try:
+        import psycopg
+    except ImportError:
+        return False
+    return isinstance(error, (psycopg.OperationalError, psycopg.InterfaceError))
+
+
+def _call(store, name: str, *args):
+    """ストアのメソッドを呼ぶ。接続が切れていたら、張り直して1回だけやり直す。
+
+    接続は使い回しているので、DBが再起動すると次の1回が必ず失敗する。
+    そこで諦めると戦績などを1件落とすので、ここでやり直す。
+    """
+    try:
+        return getattr(store, name)(*args)
+    except Exception as error:
+        if not _connection_lost(error):
+            raise
+        logger.info(f"セーブDBの接続が切れていたので張り直します\n{error}")
+        store.close()
+        return getattr(store, name)(*args)
+
+
 def get_guild_setting(guild_id, key: str) -> int | None:
     """ギルド設定をDBから読む。DB未設定・失敗時はNone（既定値を使う）。"""
     store = get_store()
     if store is None:
         return None
     try:
-        return store.get_guild_setting(int(guild_id), key)
+        return _call(store, "get_guild_setting", int(guild_id), key)
     except Exception as error:
         logger.error(f"ギルド設定の読み込みに失敗しました\n{error}")
         reset_store()
@@ -462,7 +487,7 @@ def set_guild_setting(guild_id, key: str, value: int) -> bool:
     if store is None:
         return False
     try:
-        store.set_guild_setting(int(guild_id), key, int(value))
+        _call(store, "set_guild_setting", int(guild_id), key, int(value))
         return True
     except Exception as error:
         logger.error(f"ギルド設定の保存に失敗しました\n{error}")
@@ -505,7 +530,7 @@ def add_quiz_log(guild_id, quiz_name, judge, question, answer_input, recognized,
         quiz_log_csv(csv_path, quiz_name, judge, question, answer_input, recognized)
         return
     try:
-        store.add_quiz_log(int(guild_id), quiz_name, judge, question, answer_input,
+        _call(store, "add_quiz_log", int(guild_id), quiz_name, judge, question, answer_input,
                            recognized, answer, quiz_message_id,
                            int(user_id) if user_id is not None else None)
     except Exception as error:
@@ -522,7 +547,7 @@ def weak_questions(user_id, quiz_name: str, limit: int = 10) -> list | None:
     if store is None:
         return None
     try:
-        return store.weak_questions(int(user_id), quiz_name, limit)
+        return _call(store, "weak_questions", int(user_id), quiz_name, limit)
     except Exception as error:
         logger.error(f"苦手な問題の読み込みに失敗しました\n{error}")
         reset_store()
@@ -542,7 +567,7 @@ def report(
     if store is None:
         return report_csv(csv_path, userId, repoIndex, modifi, userName)
     try:
-        return store.report(int(userId), repoIndex, modifi, userName)
+        return _call(store, "report", int(userId), repoIndex, modifi, userName)
     except Exception as error:
         logger.error(f"セーブDBへの書き込みに失敗しました\n{error}")
         reset_store()
@@ -555,7 +580,7 @@ def ranking(key: str, limit: int = 5, csv_path=None) -> list:
     if store is None:
         return ranking_csv(csv_path, key, limit)
     try:
-        return store.ranking(key, limit)
+        return _call(store, "ranking", key, limit)
     except Exception as error:
         logger.error(f"ランキングの読み込みに失敗しました\n{error}")
         reset_store()
@@ -568,7 +593,7 @@ def rank(user_id, key: str, csv_path=None) -> int:
     if store is None:
         return rank_csv(csv_path, user_id, key)
     try:
-        return store.rank(int(user_id), key)
+        return _call(store, "rank", int(user_id), key)
     except Exception as error:
         logger.error(f"順位の読み込みに失敗しました\n{error}")
         reset_store()
@@ -581,7 +606,7 @@ def top_value(key: str, csv_path=None) -> int:
     if store is None:
         return top_value_csv(csv_path, key)
     try:
-        return store.top_value(key)
+        return _call(store, "top_value", key)
     except Exception as error:
         logger.error(f"最高額の読み込みに失敗しました\n{error}")
         reset_store()
@@ -595,7 +620,7 @@ def reset_value(key: str, value: int, csv_path=None) -> None:
         reset_value_csv(csv_path, key, value)
         return
     try:
-        store.reset_value(key, value)
+        _call(store, "reset_value", key, value)
     except Exception as error:
         logger.error(f"値のリセットに失敗しました\n{error}")
         reset_store()

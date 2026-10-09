@@ -335,3 +335,57 @@ def test_index_is_created_after_migration():
         i for i, sql in enumerate(sqls)
         if "ADD CONSTRAINT save_value_user_fkey" in sql)
     assert index_at > fk_add
+
+
+class DroppingConnection(FakeConnection):
+    """最初の問い合わせで「接続が切れた」と言う（DBが再起動したあとの状態）。"""
+
+    def __init__(self):
+        super().__init__()
+        self.dropped = False
+
+    def execute(self, sql, params=None):
+        if "INSERT INTO save_value" in sql and not self.dropped:
+            import psycopg
+
+            self.dropped = True
+            self.closed = True
+            raise psycopg.OperationalError(
+                "terminating connection due to administrator command")
+        return super().execute(sql, params)
+
+
+def test_report_reconnects_once_when_the_connection_was_dropped(monkeypatch):
+    connections = []
+
+    def connect(**kwargs):
+        connections.append(DroppingConnection() if not connections else FakeConnection())
+        return connections[-1]
+
+    store = save.PostgresSaveStore({"password": "dummy"}, connect=connect)
+    monkeypatch.setattr(save, "get_store", lambda: store)
+
+    # DBの再起動のあとでも、戦績を落とさず保存できる
+    assert save.report(123, "bq正答", 1, "テスト", csv_path=None) == 1
+    assert len(connections) == 2
+
+
+def test_report_still_fails_when_the_database_stays_down(monkeypatch):
+    import psycopg
+
+    class DownStore:
+        calls = 0
+
+        def report(self, *args):
+            DownStore.calls += 1
+            raise psycopg.OperationalError("connection refused")
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(save, "get_store", lambda: DownStore())
+    monkeypatch.setattr(save, "reset_store", lambda: None)
+
+    with pytest.raises(save.SaveError):
+        save.report(123, "bq正答", 1, "テスト", csv_path=None)
+    assert DownStore.calls == 2  # やり直しは1回だけ
