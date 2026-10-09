@@ -62,16 +62,38 @@ python debug_cli.py                  # 対話モード（q bq → answer / hint 
 
 ### イントロクイズの回答リスト
 
-`bot_module/intro.py` が判定する。回答は曲名ではなく「作品の略称＋戦う相手」（例: `BWシロナ`）。対応は `resource/` のCSVで管理する:
+`bot_module/intro.py` が判定する。回答は曲名ではなく「作品の略称＋戦う相手」（例: `BWシロナ`）。
+
+**別名・ほかに流れる作品・シークレットは pkdb（`sleepy_pkdb` の `app_intro_alias`・`app_intro_appearance`・`app_intro_secret`）が正**。Bot は1分ごとに読み直すので、**直すのに PR も配備も要らない**。本番とテスト用Botは同じ表を見る。
+
+「この答えが通らない」「この曲はシークレットに」と言われたら、`tools/intro_db.py` で直す:
+
+```bash
+python tools/intro_db.py list ゼロラボ                      # 曲を探して、いまの登録を見る
+python tools/intro_db.py judge SV ゼロラボ sv博士            # その曲が出題されたときの判定
+python tools/intro_db.py alias add SV ゼロラボ オーリム フトゥー   # 別名を足す（remove で消す）
+python tools/intro_db.py alias add Pt フロンティアブレーン ネジキ --in HGSS  # HGSSで流れるときだけの呼び名
+python tools/intro_db.py appear add DP ディアルガ・パルキア ORAS   # ORASでも流れる（remove で消す）
+python tools/intro_db.py secret add SM "トレーナー 〜ポケモン Zリングシンクロバージョン〜" 理由  # remove で戻す
+python tools/intro_db.py pull                               # pkdb → CSV（控え）。たまにコミットする
+```
+
+- 作品は略称でも作品名でもよく、曲名は一部でよい（その作品で1曲に決まること）。apps-01 へのSSH鍵（`~/.ssh/id_ed25519_pve`）と、手元の曲リスト（`resource/intro/manifest.csv`）が要る。
+- 直す前に `judge` で今の判定を見て、直したあと出てくる判定が `correct` になったことを確かめる。**`ambiguous`・`ambiguous_song`・`partial` は「聞き返し」で、多くは仕様**（略称が要る、決戦か戦闘か決まらない、地方を省いた、など）。別名で無理に通さず、仕様かどうかを先に考える。
+- 別名は、その作品でその曲だけを指す呼び方にする。同じ作品のほかの曲にも当てはまる呼び方（例: エリアゼロの戦闘曲2つに「パラドックスポケモン」）は足さない。居ない作品の略称では通さない（`ORASミクリ` は不正解）。
+- シークレットは、未使用曲・古いバージョン・連動用の別音源など、ふつうに遊んで聞く機会がほぼ無い音源だけ。
+- `push`（CSVでpkdbを丸ごと置き換える）は、pkdbでの直しを消すので、頼まれたときだけ使う。
+- `canon`・`judge` など**判定の仕組み**を変えるのはコードの変更で、PRと配備が要る。データで直せるかを先に確かめる。
+
+pkdb が使えないとき（`PKDB_PASSWORD` が無い・つながらない・表が空）は `resource/` のCSVを使う:
 
 | ファイル | 中身 | 直し方 |
 |---|---|---|
-| `intro_works.csv` | 作品名 → 略称 | 手で編集 |
-| `intro_words.csv` | 言葉 → 言い換え（よみなど） | 手で編集 |
-| `intro_secret.csv` | ふだん出題しない曲 | 手で編集 |
-| `intro_aliases.csv`・`intro_appearances.csv` | 別名／再録・流用 | **手で直さない**。`python tools/intro_sheet.py export` で編集用の表（`temp/intro_sheet.md`）を出し、直してから `import` で作り直す |
+| `intro_works.csv` | 作品名 → 略称 | 手で編集（PRと配備が要る） |
+| `intro_words.csv` | 言葉 → 言い換え（よみなど） | 手で編集（PRと配備が要る） |
+| `intro_aliases.csv`・`intro_appearances.csv`・`intro_secret.csv` | 別名／再録・流用／シークレットの控え | **手で直さない**。`tools/intro_db.py pull` で pkdb から書き出す |
 
-`python tools/export_intro_answers.py` で、曲ごとにどの答えが正解になるかを確認用に書き出せる。テストは本物のCSVではなく `tests/data/` の写しを使う。
+表の定義は shake-cloud の `stacks/pkdb/sql/app_intro.sql`。`tools/intro_sheet.py` は、人がまとめて見直すための表（Markdown）の出し入れ（`import` のあと `intro_db.py push` で pkdb へ入る）。`python tools/export_intro_answers.py` で、曲ごとにどの答えが正解になるかを書き出せる。テストは本物のCSVではなく `tests/data/` の写しを使う。
 
 ### ログ
 

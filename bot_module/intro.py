@@ -15,8 +15,13 @@
 - resource/intro_secret.csv  作品（略称）,曲名,理由（ふだんは出題しない曲）
 - resource/intro_appearances.csv 原曲の作品,相手,登場する作品,そこでの呼び名
   （再録・流用。音源は原曲だけだが、登場する作品の略称でも答えられ、絞り込みにも入る）
+
+別名・登場作品・シークレットの3つは、pkdb（sleepy_pkdb の app_intro_* 表）に
+あればそちらを使う。Botは定期的に読み直すので、表を直せば配備なしで反映される
+（直し方は tools/intro_db.py）。pkdbが使えないときはCSVを使う。
 """
 import csv
+import os
 from dataclasses import dataclass
 from functools import cached_property, lru_cache
 import hashlib
@@ -24,6 +29,7 @@ from pathlib import Path
 import random
 import re
 
+from bot_module.logging_setup import logger
 from bot_module.normalize import format_text
 
 INTRO_DIRECTORY = Path("resource/intro")
@@ -75,6 +81,90 @@ def _rows(path: Path) -> list:
         return []
 
 
+# pkdb から読んだ対応リスト（CSVと同じ行の形。名前 -> 行の並び）。None ならCSVを使う。
+_database_lists = None
+
+DATABASE_LISTS_SQL = (
+    "SELECT work, title, in_work, alias FROM pokemondb.app_intro_alias"
+    " ORDER BY work, title, in_work, alias",
+    "SELECT work, title, appears_in FROM pokemondb.app_intro_appearance"
+    " ORDER BY work, title, appears_in",
+    "SELECT work, title, coalesce(reason, '') FROM pokemondb.app_intro_secret"
+    " ORDER BY work, title",
+)
+
+
+def rows_from_database(aliases, appearances, secrets) -> dict:
+    """pkdbの行を、CSVと同じ行の形にまとめる。
+
+    app_intro_alias は1行に別名1つ。in_work が原曲の作品と同じなら別名、
+    違えば「その作品で流れるときの呼び名」（登場作品の行に付く）。
+    """
+    own, reused = {}, {}
+    for work, title, appears_in in appearances:
+        reused.setdefault((work, title, appears_in), [])
+    for work, title, in_work, alias in aliases:
+        if canon(in_work) == canon(work):
+            own.setdefault((work, title), []).append(alias)
+        else:
+            reused.setdefault((work, title, in_work), []).append(alias)
+    return {
+        "aliases": [[*key, "|".join(names)] for key, names in own.items()],
+        "appearances": [[*key, "|".join(names)] for key, names in reused.items()],
+        "secret": [list(row) for row in secrets],
+    }
+
+
+def fetch_database_lists():
+    """pkdbから対応リストを読む。1行も無ければ None（CSVを使う）。"""
+    import psycopg  # 遅延import（CSVだけで動かすときは不要）
+
+    from bot_module import pokedex
+
+    with psycopg.connect(
+        host=os.environ.get("PKDB_HOST", pokedex.DEFAULT_PKDB_HOST),
+        port=int(os.environ.get("PKDB_PORT", pokedex.DEFAULT_PKDB_PORT)),
+        dbname=os.environ.get("PKDB_DB", pokedex.DEFAULT_PKDB_DB),
+        user=os.environ.get("PKDB_USER", pokedex.DEFAULT_PKDB_USER),
+        password=os.environ["PKDB_PASSWORD"],
+        connect_timeout=10,
+    ) as connection:
+        tables = [connection.execute(sql).fetchall() for sql in DATABASE_LISTS_SQL]
+    return rows_from_database(*tables) if any(tables) else None
+
+
+def use_database_lists(lists) -> bool:
+    """対応リストを差し替える（None でCSVへ戻す）。変わったら True。"""
+    global _database_lists
+    if lists == _database_lists:
+        return False
+    _database_lists = lists
+    reset_answer_lists()
+    return True
+
+
+def refresh_from_database() -> bool:
+    """pkdbの対応リストを読み直す。変わったら True。
+
+    PKDB_PASSWORD が無ければ何もしない。読めなかったときは今のリストのまま続ける。
+    """
+    if not os.environ.get("PKDB_PASSWORD"):
+        return False
+    try:
+        lists = fetch_database_lists()
+    except Exception as error:
+        logger.error(f"pkdbからイントロクイズの対応リストを読めませんでした\n{error}")
+        return False
+    return use_database_lists(lists)
+
+
+def _list_rows(name: str, path: Path) -> list:
+    """対応リストの行。pkdbから読めていればそれ、無ければCSV。"""
+    if _database_lists is not None:
+        return _database_lists[name]
+    return _rows(path)
+
+
 def _split(cell: str) -> list:
     return [part.strip() for part in (cell or "").split("|") if part.strip()]
 
@@ -121,7 +211,7 @@ def _alias_rules() -> tuple:
     """(作品の略称の照合形か空, 相手の照合形, 別名のタプル) の並び。"""
     return tuple(
         (canon(row[0]), canon(row[1]), tuple(_split(row[2])))
-        for row in _rows(ALIASES_PATH) if len(row) >= 3 and canon(row[1]))
+        for row in _list_rows("aliases", ALIASES_PATH) if len(row) >= 3 and canon(row[1]))
 
 
 @lru_cache(maxsize=None)
@@ -129,7 +219,7 @@ def _appearance_rules() -> tuple:
     """(原曲の作品の略称, 相手, 登場する作品, 呼び名のタプル) の並び。"""
     return tuple(
         (canon(row[0]), canon(row[1]), row[2], tuple(_split((row + [""])[3])))
-        for row in _rows(APPEARANCES_PATH)
+        for row in _list_rows("appearances", APPEARANCES_PATH)
         if len(row) >= 3 and canon(row[1]) and row[2])
 
 
@@ -138,7 +228,7 @@ def _secret_rules() -> tuple:
     """シークレットの曲の (作品の略称, 曲名) の並び（どちらも照合形）。"""
     return tuple(
         (canon(row[0]), canon(row[1]))
-        for row in _rows(SECRET_PATH) if len(row) >= 2 and canon(row[1]))
+        for row in _list_rows("secret", SECRET_PATH) if len(row) >= 2 and canon(row[1]))
 
 
 @lru_cache(maxsize=None)
