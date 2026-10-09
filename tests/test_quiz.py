@@ -678,6 +678,35 @@ def test_cry_hint_keeps_the_audio_attachment():
     assert q.rm.replies  # ヒントを返信する
 
 
+class FakeReplyMessage(discord.Message):
+    """try_response が discord.Message として扱う返信（中身は自前で入れる）。"""
+
+    def __init__(self, content, quiz_message):
+        self.content = content
+        self.author = FakeUser()
+        self.reference = FakeReference()
+        self.reference.resolved = quiz_message
+
+
+def test_bq_answer_keeps_the_graph_inside_the_embed():
+    # 取得し直したEmbedの画像はCDNのURL。そのまま編集するとグラフが埋め込みの外に出る
+    embed = discord.Embed()
+    embed.set_image(url='https://cdn.discordapp.com/attachments/1/2/image.png')
+    quiz_message = FakeMessage(author=FakeUser(), content='78-84-78-109-85-100 534',
+                               embeds=[embed])
+    q = _quiz()
+    q._QuizSession__answers = lambda: (['リザードン'], _pokemon())
+
+    async def hint():
+        pass
+
+    q._QuizSession__hint = hint
+
+    asyncio.run(q.try_response(FakeReplyMessage('ヒント', quiz_message)))
+
+    assert q.quizEmbed.image.url == 'attachment://image.png'
+
+
 def test_crydata_changes_the_mode(monkeypatch):
     cog = quiz_module.Quiz(FakeBot())
     channel = FakeChannel()

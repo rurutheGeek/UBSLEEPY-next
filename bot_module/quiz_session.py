@@ -340,6 +340,10 @@ class QuizSession:
             # customIDが"acq_こうげき/とくこう/同値"のようなかたちを想定
 
         self.quizEmbed = self.qm.embeds[0]
+        if self.quizName == "bq":
+            # 取得し直したEmbedの画像はCDNのURLになっている。そのまま編集すると
+            # グラフが埋め込みから外れて外に出るので、添付への参照に戻す
+            self.quizEmbed.set_image(url="attachment://image.png")
 
         gives = ["ギブ", "ギブアップ", "降参", "敗北"]
         hints = []
