@@ -265,7 +265,9 @@ _REMARK = re.compile(r"\s*-[^-]+-\s*$")
 _SECOND = re.compile(r"\s*[〜～~].*$")
 _HEAD = re.compile(r"^(?:(?:戦闘|決戦|戦い)\s*[！!：:]|battle!)\s*(.+)$", re.IGNORECASE)
 # 同じ曲の別バージョンを表すかっこ書き（地方名などは別の曲として残す）
-_NOT_A_PLACE = re.compile(r"^\d+$|ver|バージョン|original|交代|^[昼夜]$", re.IGNORECASE)
+_NOT_A_PLACE = re.compile(r"^\d+$|ver|バージョン|original|交代", re.IGNORECASE)
+# 言わなくてもその曲を指すかっこ書き（昼夜のある曲は、書かなければ昼＝朝の曲）
+_DEFAULT_PLACES = ("昼",)
 _GENERIC_HEADS = ("戦い", "戦闘", "勝利", "")
 # 最終戦の曲（「決戦！N」「戦闘！チャンピオンネモ」「戦闘！本気のマスタード」）
 _FINAL_HEAD = re.compile(r"^\s*決戦\s*[！!：:]")
@@ -313,10 +315,19 @@ def answer_cores(title: str) -> list:
     for core in list(cores):
         if "の" in core.strip("の"):
             cores.append(core.replace("の", ""))  # フラダリラボのオヤブン -> フラダリラボオヤブン
+    base_cores = list(cores)
     for place in places:  # （カントー）など
         for core in list(cores):
             if not any(other in core for other in places):
                 cores += [place + core, place + "の" + core, core + place]
+    if len(places) > 1:  # （ジョウト）（GBプレイヤー）は両方言えば強い答えになる
+        for core in base_cores:
+            for first, second in (places[:2], places[1::-1]):
+                joined = first + second
+                cores += [joined + core, joined + "の" + core, core + joined,
+                          first + core + second]
+    if "昼" in places:  # （昼）の曲は 朝 と書いてもよい（曲名に昼を含むだけの曲は変えない）
+        cores += [core.replace("昼", "朝") for core in cores if "昼" in core]
     return list(dict.fromkeys(core for core in cores if core))
 
 
@@ -355,7 +366,8 @@ class IntroTrack:
             named |= {canon(core) for core in answer_cores(name)
                       if any(place in core for place in answer_places(name))}
         for core in answer_cores(self.title):
-            placed = not places or any(place in core for place in places)
+            shown = core.replace("朝", "昼") if "昼" in places else core
+            placed = all(place in shown or place in _DEFAULT_PLACES for place in places)
             (strong if placed and not final else loose).add(canon(core))
             prefixed = _FINAL_PREFIX.match(core)
             if prefixed:  # チャンピオンネモ -> ネモ・決戦ネモ（どちらも弱）
@@ -630,6 +642,44 @@ def judge(track, text: str) -> str:
     if any(strength >= mine for strength in rivals):
         return AMBIGUOUS_SONG
     return CORRECT
+
+
+_REGIONS = ("カントー", "ジョウト", "ホウエン", "シンオウ", "イッシュ", "カロス",
+            "アローラ", "ガラル", "パルデア", "ヒスイ")
+
+
+def distinguishers(track, text: str) -> list:
+    """聞き返すときに、答えへ足してほしいもの（決戦・地方・時間帯）。
+
+    出題中の曲と候補の曲で違うところだけを返す（カントーの曲に時間帯は求めない）。
+    これで区別できなければ空。
+    """
+    titles = candidates(track, text)
+    if len(titles) < 2:
+        return []
+
+    def traits(title: str) -> tuple:
+        places = set(answer_places(title))
+        return (bool(_FINAL_HEAD.match(title)), frozenset(places & set(_REGIONS)),
+                frozenset(places & {"昼", "夜"}))
+
+    final, region, time = traits(track.title)
+    others = [traits(title) for title in titles]
+    axes = []
+    if any(other[0] != final for other in others):
+        axes.append("決戦")
+    if any(other[1] != region for other in others):
+        axes.append("地方")
+    if any(other[1] == region and other[2] != time for other in others):
+        axes.append("時間帯")
+    if not axes:  # 南の野生ポケモン・東の野生ポケモン のように、頭の言葉だけが違う
+        opponents = [answer_cores(title)[0] for title in titles]
+        suffix = os.path.commonprefix([name[::-1] for name in opponents])[::-1]
+        heads = {name[:len(name) - len(suffix)] for name in opponents}
+        if len(suffix) >= 2 and len(heads) == len(opponents) and all(
+                1 <= len(head) <= 3 for head in heads):
+            axes.append("場所")
+    return axes
 
 
 def candidates(track, text: str) -> list:
