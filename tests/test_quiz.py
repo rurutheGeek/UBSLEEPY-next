@@ -801,7 +801,7 @@ def test_quiz_filter_dict_starts_as_a_copy():
     assert cog.state.bq_filter_dict is not cfg.DEFAULT_FILTER_DICT
 
 
-def test_quizrate_reports_save_error(monkeypatch):
+def test_quizrecord_reports_save_error(monkeypatch):
     from bot_module.save import SaveError
 
     def fail(*args, **kwargs):
@@ -829,7 +829,7 @@ def test_quizrate_reports_save_error(monkeypatch):
     monkeypatch.setattr(quiz_module.ub, "report", fail)
     cog = quiz_module.Quiz(FakeBot())
 
-    asyncio.run(cog.quizrate.callback(cog, interaction, None, "種族値クイズ"))
+    asyncio.run(cog.quizrecord.callback(cog, interaction, None, "種族値クイズ"))
 
     assert interaction.response.messages
     assert interaction.response.messages[-1][1]["ephemeral"] is True
@@ -1043,3 +1043,83 @@ def test_the_disclosure_announces_the_next_quiz(monkeypatch):
 
     assert authors == ['tester さんがギブアップ ⏩連続出題ON',
                        'tester さんがギブアップ']
+
+
+def _record(monkeypatch, weak, user=None):
+    """/quizrecord を呼び、(送った内容, 苦手の問い合わせ) を返す。"""
+    calls, sent = [], []
+
+    def fake_weak(user_id, quiz_name, limit):
+        calls.append((user_id, quiz_name, limit))
+        if isinstance(weak, Exception):
+            raise weak
+        return weak
+
+    class Response:
+        async def send_message(self, *args, **kwargs):
+            sent.append((args, kwargs))
+
+        def is_done(self):
+            return False
+
+    interaction = type("I", (), {
+        "user": type("U", (), {"id": 42, "name": "tester"})(),
+        "response": Response(),
+    })()
+    values = {"bq正答": 30, "bq誤答": 10}
+    monkeypatch.setattr(quiz_module.ub, "report",
+                        lambda user_id, key, delta, name: values[key])
+    monkeypatch.setattr(quiz_module.save, "weak_questions", fake_weak)
+    cog = quiz_module.Quiz(FakeBot())
+    asyncio.run(cog.quizrecord.callback(cog, interaction, user, "種族値クイズ"))
+    return sent, calls
+
+
+def test_quizrecord_shows_the_rate_and_the_weak_questions(monkeypatch):
+    sent, calls = _record(monkeypatch, [
+        ("63-95-65-80-72-110", "タギングル", 1, 3, 1, "エテボース"),
+        ("50-85-125-85-115-20", "", 0, 1, 0, "ミカルゲ"),
+        ("100-100-100-100-100-100", "ミュウ", 0, 0, 2, "")])
+
+    assert calls == [(42, "bq", quiz_module.WEAK_LIMIT)]
+    args, kwargs = sent[-1]
+    assert "ephemeral" not in kwargs  # 旧 /quizrate と同じく、みんなに見える
+    embed = kwargs["embed"]
+    assert embed.title == "testerさんの種族値クイズ戦績"
+    assert "正答: 30回 誤答: 10回" in embed.description
+    assert "ギブ" not in embed.description  # ギブアップの回数は出さない
+    assert "正答率: 75%" in embed.description
+    # ギブアップは誤答に含めて数える
+    assert "1. **タギングル（63-95-65-80-72-110）** — 誤答4・正答1" in embed.description
+    assert "3. **ミュウ（100-100-100-100-100-100）** — 誤答2・正答0" in embed.description
+    assert "よく書いた答え: エテボース" in embed.description
+    assert "2. **50-85-125-85-115-20** — 誤答1・正答0" in embed.description  # 正解が無い古い行
+
+
+def test_quizrecord_lists_up_to_ten_weak_questions(monkeypatch):
+    rows = [(f"q{i}", f"ポケモン{i}", 0, 20 - i, 0, "") for i in range(10)]
+    sent, calls = _record(monkeypatch, rows)
+
+    assert calls[0][2] == 10
+    description = sent[-1][1]["embed"].description
+    assert "10. **ポケモン9（q9）**" in description
+
+
+def test_quizrecord_can_show_another_member(monkeypatch):
+    other = type("U", (), {"id": 77, "name": "other"})()
+    sent, calls = _record(monkeypatch, [], user=other)
+
+    assert calls == [(77, "bq", quiz_module.WEAK_LIMIT)]
+    embed = sent[-1][1]["embed"]
+    assert embed.title == "otherさんの種族値クイズ戦績"
+    assert "記録が ない" in embed.description
+
+
+def test_quizrecord_without_the_quiz_log_still_shows_the_rate(monkeypatch):
+    from bot_module.save import SaveError
+
+    for weak in (None, SaveError("失敗")):  # DBが無い手元・判定ログが読めない
+        sent, _calls = _record(monkeypatch, weak)
+        embed = sent[-1][1]["embed"]
+        assert "正答率: 75%" in embed.description
+        assert "苦手な問題" not in embed.description

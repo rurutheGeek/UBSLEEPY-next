@@ -488,11 +488,11 @@ class Harness:
         query = " ".join(args) if args else None
         await self.search_cog.search.callback(self.search_cog, self.interaction, query)
 
-    async def cmd_quizrate(self, args):
+    async def cmd_quizrecord(self, args):
         quizname = args[0] if args else "種族値クイズ"
         if quizname in self.cfg.QUIZNAME_DICT.values():
             quizname = next(k for k, v in self.cfg.QUIZNAME_DICT.items() if v == quizname)
-        await self.quiz_cog.quizrate.callback(
+        await self.quiz_cog.quizrecord.callback(
             self.quiz_cog, self.interaction, None, quizname
         )
 
@@ -572,7 +572,7 @@ HELP = """コマンド一覧:
   give                          ギブアップ
   press <ラベル>                ACクイズのボタン（こうげき / とくこう / 同値）
   search [条件...]              検索（条件なしはGUIパネル）
-  quizrate [クイズ名]           戦績
+  quizrecord [クイズ名]         戦績と苦手な問題
   pocketmoney                   おこづかい
   bmode [ON|OFF]                連続出題モード
   bqdata [条件...]              出題条件の表示・変更

@@ -419,7 +419,7 @@ def _answer(monkeypatch, content, track_id='a1'):
     monkeypatch.setattr(session_module.ub, 'report',
                         lambda *args: reports.append(args) or 1)
     monkeypatch.setattr(session_module.save, 'add_quiz_log',
-                        lambda *args, **kwargs: logs.append(args))
+                        lambda *args, **kwargs: logs.append((*args, kwargs)))
     state = quiz_module.QuizState()
     state.bakusoku_mode = False
     question = QuestionMessage(track_id)
@@ -438,6 +438,12 @@ def test_the_right_title_is_correct(monkeypatch, library):
     assert 'attachments' not in question.edits[-1]  # 添付（イントロ）は消さない
     assert reports[0][1] == 'introq正答'
     assert logs[0][2] == '正答'
+    # 分析用に、正解の表記とクイズの投稿も残す
+    # 曲名だけでは作品が分からないので、問題にも正解にも作品を付ける
+    assert logs[0][3] == '戦闘！ジムリーダー（ソード・シールド）'
+    assert logs[0][-1]['answer'] == '戦闘！ジムリーダー（ソード・シールド）'
+    assert logs[0][-1]['quiz_message_id'] == question.id
+    assert logs[0][-1]['user_id'] == answer.author.id  # 本人の苦手の集計に使う
 
 
 def test_an_alias_is_correct(monkeypatch, library):
@@ -512,10 +518,21 @@ def test_an_unknown_title_is_not_counted(monkeypatch, library):
 
 
 def test_giving_up_shows_the_answer(monkeypatch, library):
-    question, answer, _reports, _logs = _answer(monkeypatch, 'ギブ', track_id='b2')
+    question, answer, reports, logs = _answer(monkeypatch, 'ギブ', track_id='b2')
 
     assert answer.replies == ['答えはテーブルシティ（スカーレット・バイオレット）でした']
     assert 'テーブルシティ（スカーレット・バイオレット）' in question.edits[-1]['embed'].description
+    # 戦績には数えないが、判定ログには「ギブアップ」として残す（難しい問題の目安）
+    assert reports == []
+    assert [log[2] for log in logs] == ['ギブアップ']
+    assert logs[0][5] is True
+
+
+def test_asking_for_a_hint_is_logged(monkeypatch, library):
+    _question, _answer_message, reports, logs = _answer(monkeypatch, 'ヒント')
+
+    assert reports == []
+    assert [log[2] for log in logs] == ['ヒント']
 
 
 def test_the_hint_is_the_work(library):

@@ -23,6 +23,10 @@ from bot_module.pokedex import get_pokedex
 import bot_module.save as save
 from bot_module.save import SaveError
 
+# 判定ログ（quiz_log）の judge に入れる、回答ではない操作
+LOG_GIVEUP = "ギブアップ"
+LOG_HINT = "ヒント"
+
 # 鳴き声クイズの音源。tools/fetch_cries.py が置き、クイズはローカル参照だけする。
 # latest=あたらしい鳴き声（全種）、legacy=BWまでの古い鳴き声（1〜649）。
 CRY_DIRECTORY = Path("resource/cry")
@@ -416,8 +420,12 @@ class QuizSession:
 
         if self.ansText in gives:
             await self.__giveup()
+            await asyncio.to_thread(
+                self.__log, LOG_GIVEUP, self.ansList[0], True)
         elif self.ansText in hints:
             await self.__hint()
+            await asyncio.to_thread(
+                self.__log, LOG_HINT, self.ansList[0], True)
         else:
             await self.__judge()
 
@@ -859,11 +867,20 @@ class QuizSession:
                 ub.output_warning(f"不明なクイズ識別子(imageLink): {self.quizName}")
         return link
 
-    def __log(self, judge, exAns):
+    def __log(self, judge, exAns, recognized=None):
         # 判定ログはDB（ubsleepy.quiz_log）へ。DBが無い手元はCSV（開発用）
+        # 分析（間違いやすい問題・書き間違い・本人の苦手）に使う
         logPath = f"log/{self.quizName}log.csv"
         ub.output_log(f"{self.quizName}: log生成を実行\n {logPath}")
         guild_id = getattr(getattr(self.qm, "guild", None), "id", 0) or 0
+        if recognized is None:
+            recognized = judge is not None
+        question = self.examText
+        if self.quizName == "introq" and self.ansZero.work:
+            # 同じ曲名がいくつもの作品にあるので、作品まで書いて区別する
+            question = exAns = f"{self.examText}（{self.ansZero.work}）"
         save.add_quiz_log(
-            guild_id, self.quizName, judge, self.examText, self.ansText,
-            judge is not None, csv_path=logPath)
+            guild_id, self.quizName, judge, question, self.ansText,
+            recognized, csv_path=logPath, answer=exAns,
+            quiz_message_id=getattr(self.qm, "id", None),
+            user_id=getattr(self.opener, "id", None))
