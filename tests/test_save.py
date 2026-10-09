@@ -74,7 +74,52 @@ def test_quiz_log_store_inserts():
     store.add_quiz_log(999, "cryq", "正答", "リザードン", "リザードン", True)
 
     insert = [c for c in connection.calls if "INSERT INTO quiz_log" in c[0]][0]
-    assert insert[1] == (999, "cryq", "正答", "リザードン", "リザードン", True)
+    assert insert[1] == (
+        999, "cryq", "正答", "リザードン", "リザードン", True, None, None, None)
+
+
+def test_quiz_log_store_keeps_answer_and_quiz_message():
+    store, connection = _fake_store()
+
+    store.add_quiz_log(999, "ctojq", "誤答", "夢夢蝕", "ムウマ", True,
+                       answer="ムシャーナ", quiz_message_id=12345, user_id=42)
+
+    insert = [c for c in connection.calls if "INSERT INTO quiz_log" in c[0]][0]
+    assert insert[1] == (
+        999, "ctojq", "誤答", "夢夢蝕", "ムウマ", True, "ムシャーナ", 12345, 42)
+
+
+def test_weak_questions_are_scoped_to_one_user_and_quiz():
+    store, connection = _fake_store()
+
+    assert store.weak_questions(42, "bq", 10) == []
+    sql, params = [c for c in connection.calls if "GROUP BY question" in c[0]][0]
+    assert "WHERE user_id = %s AND quiz_name = %s" in sql
+    assert params == (42, "bq", 10)
+
+
+def test_weak_questions_need_the_database(monkeypatch):
+    monkeypatch.setattr(save, "get_store", lambda: None)
+
+    assert save.weak_questions(42, "bq") is None
+
+
+def test_weak_questions_failure_is_a_save_error(monkeypatch):
+    class BrokenStore:
+        def weak_questions(self, *args):
+            raise RuntimeError("接続失敗")
+
+    monkeypatch.setattr(save, "get_store", lambda: BrokenStore())
+    monkeypatch.setattr(save, "reset_store", lambda: None)
+
+    with pytest.raises(save.SaveError):
+        save.weak_questions(42, "bq")
+
+
+def test_quiz_log_table_gets_analysis_columns():
+    assert "ADD COLUMN IF NOT EXISTS answer TEXT" in save.CREATE_SQL
+    assert "ADD COLUMN IF NOT EXISTS quiz_message_id BIGINT" in save.CREATE_SQL
+    assert "ADD COLUMN IF NOT EXISTS user_id BIGINT" in save.CREATE_SQL
 
 
 def test_quiz_log_falls_back_to_csv(monkeypatch, tmp_path):
@@ -225,7 +270,8 @@ def test_migration_runs_for_old_schema():
 def test_migration_skips_when_already_migrated():
     store, connection = _fake_store()
     store.get_guild_setting(1, "QUIZ_CHANNEL_ID")
-    assert not any("ALTER TABLE" in call[0] for call in connection.calls)
+    # quiz_log の列追加（ADD COLUMN IF NOT EXISTS）は毎回流れる。セーブの移行だけを見る
+    assert not any("ALTER TABLE save_" in call[0] for call in connection.calls)
 
 
 def test_store_ranking_sql_scopes_by_guild():

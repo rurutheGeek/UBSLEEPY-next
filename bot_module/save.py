@@ -55,7 +55,14 @@ CREATE TABLE IF NOT EXISTS quiz_log (
     question TEXT,
     answer_input TEXT,
     recognized BOOLEAN
-)
+);
+-- 分析用の列（あとから足したので、古い行は空）。
+-- answer=正解の表記、quiz_message_id=クイズの投稿（同じ出題への回答をまとめる）、
+-- user_id=回答した人（本人の苦手の集計に使う）
+ALTER TABLE quiz_log ADD COLUMN IF NOT EXISTS answer TEXT;
+ALTER TABLE quiz_log ADD COLUMN IF NOT EXISTS quiz_message_id BIGINT;
+ALTER TABLE quiz_log ADD COLUMN IF NOT EXISTS user_id BIGINT;
+CREATE INDEX IF NOT EXISTS quiz_log_user_idx ON quiz_log (user_id, quiz_name)
 """
 
 # ランキング・順位をギルド内で値順に引くための索引。
@@ -246,14 +253,41 @@ class PostgresSaveStore:
         )
 
     def add_quiz_log(self, guild_id: int, quiz_name: str, judge: str,
-                     question: str, answer_input: str, recognized: bool) -> None:
+                     question: str, answer_input: str, recognized: bool,
+                     answer: str | None = None,
+                     quiz_message_id: int | None = None,
+                     user_id: int | None = None) -> None:
         """クイズの判定を1行残す。"""
         self._connection_or_connect().execute(
             "INSERT INTO quiz_log "
-            "(guild_id, quiz_name, judge, question, answer_input, recognized) "
-            "VALUES (%s, %s, %s, %s, %s, %s)",
-            (guild_id, quiz_name, judge, question, answer_input, recognized),
+            "(guild_id, quiz_name, judge, question, answer_input, recognized, "
+            "answer, quiz_message_id, user_id) "
+            "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)",
+            (guild_id, quiz_name, judge, question, answer_input, recognized,
+             answer, quiz_message_id, user_id),
         )
+
+    def weak_questions(self, user_id: int, quiz_name: str, limit: int = 10) -> list:
+        """その人が間違えた・ギブアップした問題。多い順。
+
+        (question, answer, 正答数, 誤答数, ギブアップ数, よく書いた誤答) を返す。
+        """
+        rows = self._connection_or_connect().execute(
+            "SELECT question, max(answer), "
+            "count(*) FILTER (WHERE judge = '正答'), "
+            "count(*) FILTER (WHERE judge = '誤答'), "
+            "count(*) FILTER (WHERE judge = 'ギブアップ'), "
+            "mode() WITHIN GROUP (ORDER BY answer_input) "
+            "FILTER (WHERE judge = '誤答') "
+            "FROM quiz_log WHERE user_id = %s AND quiz_name = %s "
+            "GROUP BY question "
+            "HAVING count(*) FILTER (WHERE judge IN ('誤答', 'ギブアップ')) > 0 "
+            "ORDER BY count(*) FILTER (WHERE judge IN ('誤答', 'ギブアップ')) DESC, "
+            "count(*) FILTER (WHERE judge = '正答'), question LIMIT %s",
+            (user_id, quiz_name, limit),
+        ).fetchall()
+        return [(question, answer or "", int(ok), int(ng), int(giveup), wrong or "")
+                for question, answer, ok, ng, giveup, wrong in rows]
 
     def close(self) -> None:
         if self._connection is not None:
@@ -457,9 +491,13 @@ def quiz_log_csv(csv_path, quiz_name, judge, question, answer_input, recognized)
 
 
 def add_quiz_log(guild_id, quiz_name, judge, question, answer_input, recognized,
-                 csv_path=None):
+                 csv_path=None, answer=None, quiz_message_id=None, user_id=None):
     """クイズの判定ログを残す。DBが無ければCSV（開発用）。
 
+    judge は 正答／誤答／None（入力を認識できなかった）のほか、
+    ギブアップ・ヒント（回答ではない操作）。
+    answer（正解の表記）・quiz_message_id（クイズの投稿）・user_id（回答した人）は
+    DBにだけ残す。
     ログは補助なので、失敗してもクイズは止めない（エラーログだけ残す）。
     """
     store = get_store()
@@ -468,10 +506,27 @@ def add_quiz_log(guild_id, quiz_name, judge, question, answer_input, recognized,
         return
     try:
         store.add_quiz_log(int(guild_id), quiz_name, judge, question, answer_input,
-                           recognized)
+                           recognized, answer, quiz_message_id,
+                           int(user_id) if user_id is not None else None)
     except Exception as error:
         logger.error(f"クイズログの保存に失敗しました\n{error}")
         reset_store()
+
+
+def weak_questions(user_id, quiz_name: str, limit: int = 10) -> list | None:
+    """その人の苦手な問題（間違えた・ギブアップした回数の多い順）。
+
+    DBが無い（CSVで動かしている）ときは集計できないので None。
+    """
+    store = get_store()
+    if store is None:
+        return None
+    try:
+        return store.weak_questions(int(user_id), quiz_name, limit)
+    except Exception as error:
+        logger.error(f"苦手な問題の読み込みに失敗しました\n{error}")
+        reset_store()
+        raise SaveError("苦手な問題の読み込みに失敗しました") from error
 
 
 def report(

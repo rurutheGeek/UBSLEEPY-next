@@ -23,7 +23,7 @@ EXPECTED_COMMANDS = {
     "comp",
     "simil",
     "q",
-    "quizrate",
+    "quizrecord",
     "bmode",
     "search",
     "pocketmoney",

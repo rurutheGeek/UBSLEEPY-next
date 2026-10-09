@@ -1,9 +1,10 @@
 # -*- coding: utf-8 -*-
 # cogs/quiz.py
-"""ポケモンクイズ（/q /quizrate /bmode）と回答の受付。
+"""ポケモンクイズ（/q /quizrecord /bmode）と回答の受付。
 
 セッション（出題・判定・開示）は bot_module.quiz_session にある。
 """
+import asyncio
 import copy
 
 import discord
@@ -18,7 +19,41 @@ from bot_module.pokedex import get_pokedex
 from bot_module.quiz_session import (
     CRY_DIRECTORY, CRY_MODE_LABELS, CRY_REPLAY_BUTTON_ID, QuizSession, QuizState,
     cry_candidates, cry_from_message, play_cry)
+from bot_module import save
 from bot_module.save import SaveError
+
+# /quizrecord で並べる苦手な問題の数（記録が少なければ、あるだけ）
+WEAK_LIMIT = 10
+
+
+def record_embed(user_name, quizname, correct, wrong, weak) -> discord.Embed:
+    """/quizrecord の表示。戦績（セーブデータ）と、苦手な問題（判定ログ）。
+
+    weak は save.weak_questions の返り値。None（集計できない）なら戦績だけ出す。
+    ギブアップは回数を分けて見せず、苦手な問題の「誤答」に含めて数える。
+    """
+    total = correct + wrong
+    lines = [
+        f"正答: {correct}回 誤答: {wrong}回",
+        f"正答率: {int(correct / total * 100) if total else 0}%",
+    ]
+    embed = discord.Embed(title=f"{user_name}さんの{quizname}戦績", color=0x9013FE)
+    if weak is not None:
+        lines.append("")
+        lines.append("**苦手な問題**")
+        if not weak:
+            lines.append("まだ 間違えた問題の記録が ないロ")
+        for number, (question, answer, ok, ng, gave, usual) in enumerate(weak, 1):
+            name = answer or question
+            if answer and answer != question:
+                name = f"{answer}（{question}）"
+            line = f"{number}. **{name}** — 誤答{ng + gave}・正答{ok}"
+            if usual:
+                line += f"　よく書いた答え: {usual}"
+            lines.append(line)
+        embed.set_footer(text="苦手な問題は 2026年10月の更新より あとの記録から")
+    embed.description = "\n".join(lines)[:4000]
+    return embed
 
 
 def voice_channel_for(channel):
@@ -193,10 +228,11 @@ class Quiz(commands.Cog):
         await voice_client.disconnect()
         ub.output_log(f"ボイスチャンネルから退出しました: {name}")
 
-    @discord.app_commands.command(name="quizrate", description="クイズの戦績を表示します")
+    @discord.app_commands.command(
+        name="quizrecord", description="クイズの戦績と苦手な問題を表示します")
     @scoped
     @discord.app_commands.describe(
-        user="表示したいメンバー名",
+        user="表示したいメンバー名 未記入で自分",
         quizname="クイズの種別 未記入で種族値クイズが指定されます",
     )
     @discord.app_commands.choices(
@@ -205,7 +241,7 @@ class Quiz(commands.Cog):
             for val in list(cfg.QUIZNAME_DICT.keys())
         ]
     )
-    async def quizrate(
+    async def quizrecord(
         self,
         interaction: discord.Interaction,
         user: discord.Member = None,
@@ -217,21 +253,23 @@ class Quiz(commands.Cog):
         else:
             showId = interaction.user.id
             showName = interaction.user.name
+        quiz = cfg.QUIZNAME_DICT[quizname]
 
         ub.output_log("戦績表示を実行します")
         try:
-            w = ub.report(
-                showId, f"{cfg.QUIZNAME_DICT[quizname]}正答", 0, showName)
-            l = ub.report(
-                showId, f"{cfg.QUIZNAME_DICT[quizname]}誤答", 0, showName)
+            w = ub.report(showId, f"{quiz}正答", 0, showName)
+            l = ub.report(showId, f"{quiz}誤答", 0, showName)
         except SaveError:
             await ub.save_error(interaction)
             return
+        # 苦手は判定ログから。読めないとき・DBが無いときは戦績だけ出す
+        try:
+            weak = await asyncio.to_thread(
+                save.weak_questions, showId, quiz, WEAK_LIMIT)
+        except SaveError:
+            weak = None
         await interaction.response.send_message(
-            f"""{showName}さんの{quizname}戦績
-正答: {w}回 誤答: {l}回
-正答率: {int(w/(w+l)*100) if not w+l==0 else 0}%"""
-        )
+            embed=record_embed(showName, quizname, w, l, weak))
 
     @discord.app_commands.command(name="bmode", description="クイズの連続出題モードを切り替えます")
     @scoped
