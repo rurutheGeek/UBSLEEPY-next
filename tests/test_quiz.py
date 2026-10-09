@@ -4,6 +4,8 @@
 import asyncio
 import logging
 
+import pytest
+
 import discord
 
 import bot_module.config as cfg
@@ -404,9 +406,21 @@ class FakeVoiceClient:
     def __init__(self, channel):
         self.channel = channel
         self.played = []
+        self.playing = False
+        self.stopped = 0
+
+    def is_playing(self):
+        return self.playing
+
+    def stop(self):
+        self.stopped += 1
+        self.playing = False
 
     def play(self, source):
+        if self.playing:
+            raise discord.ClientException('Already playing audio.')
         self.played.append(source)
+        self.playing = True
 
 
 class FakeVoiceChannel(discord.VoiceChannel):
@@ -819,3 +833,165 @@ def test_quizrate_reports_save_error(monkeypatch):
     assert interaction.response.messages
     assert interaction.response.messages[-1][1]["ephemeral"] is True
     assert "セーブデータ" in interaction.response.messages[-1][0][0]
+
+
+def test_play_cry_stops_the_previous_sound_first(monkeypatch):
+    # イントロを早く当てると、前の曲が鳴っている間に次の曲を流すことになる
+    monkeypatch.setattr(session_module, '_audio_source', lambda path: path)
+    voice_client = FakeVoiceClient(None)
+
+    assert session_module.play_cry(voice_client, 'a.ogg')
+    assert session_module.play_cry(voice_client, 'b.ogg')
+
+    assert voice_client.played == ['a.ogg', 'b.ogg']
+    assert voice_client.stopped == 1
+
+
+class FakeQuizChannel:
+    def __init__(self, message):
+        self.message = message
+
+    async def fetch_message(self, message_id):
+        return self.message
+
+
+class FakeQuizMessage:
+    """開示の対象になる出題の投稿。edit は指定の例外を出せる。"""
+
+    def __init__(self, error=None):
+        self.id = 555
+        self.error = error
+        self.edits = []
+        embed = discord.Embed()
+        embed.set_footer(text='No.26 ポケモンクイズ - bq')
+        self.embeds = [embed]
+        self.channel = FakeQuizChannel(self)
+
+    async def edit(self, **kwargs):
+        if self.error is not None:
+            raise self.error
+        self.edits.append(kwargs)
+
+
+def _disclosing_quiz(quiz_message):
+    q = _quiz()
+    q.state.bakusoku_mode = False
+    q.rm = FakeReplyMessage('ギブ', quiz_message)
+    q.qm = quiz_message
+    q.opener = q.rm.author
+    q.quizEmbed = discord.Embed()
+    q.quizEmbed.set_footer(text='No.26 ポケモンクイズ - bq')
+    q.ansList = ['リザードン']
+    q.ansZero = _pokemon()
+    return q
+
+
+def test_a_failed_disclosure_does_not_stay_locked(monkeypatch):
+    # 開示の途中で落ちても「開示中」のまま残さない（残ると以後のクイズが終わらない）
+    monkeypatch.setattr(session_module.ub, 'fetch_pokemon', lambda text: [])
+    q = _disclosing_quiz(FakeQuizMessage(error=RuntimeError('Discordが落ちた')))
+
+    with pytest.raises(RuntimeError):
+        asyncio.run(q._QuizSession__disclose(False))
+
+    assert not q.state.disclosing
+
+
+def test_disclosure_of_one_quiz_does_not_block_another(monkeypatch):
+    monkeypatch.setattr(session_module.ub, 'fetch_pokemon', lambda text: [])
+    quiz_message = FakeQuizMessage()
+    q = _disclosing_quiz(quiz_message)
+    q.state.disclosing.add(999)  # 別の投稿が開示中
+
+    assert asyncio.run(q._QuizSession__disclose(False)) == 0
+    assert quiz_message.edits
+
+
+def test_a_correct_answer_that_lost_the_race_is_not_counted(monkeypatch):
+    reports = []
+    monkeypatch.setattr(session_module.ub, 'fetch_pokemon', lambda text: [_pokemon()])
+    monkeypatch.setattr(session_module.ub, 'report',
+                        lambda *args: reports.append(args))
+    quiz_message = FakeQuizMessage()
+    q = _disclosing_quiz(quiz_message)
+    q.examText = '78-84-78-109-85-100'
+    q.ansText = 'リザードン'
+    q.state.disclosing.add(quiz_message.id)  # ほかの回答で開示中
+    reactions = []
+
+    async def add_reaction(emoji):
+        reactions.append(('add', emoji))
+
+    async def remove_reaction(emoji, user):
+        reactions.append(('remove', emoji))
+
+    q.rm.add_reaction = add_reaction
+    q.rm.remove_reaction = remove_reaction
+    q._QuizSession__log = lambda judge, answer: reports.append('log')
+
+    asyncio.run(q._QuizSession__judge())
+
+    assert reactions == [('add', '⭕'), ('remove', '⭕')]
+    assert reports == []  # 戦績にもログにも残さない
+
+
+class FakeAcqResponse:
+    def __init__(self):
+        self.done = False
+        self.deferred = False
+
+    def is_done(self):
+        return self.done
+
+    async def defer(self):
+        self.deferred = True
+        self.done = True
+
+
+def _acq_interaction(footer):
+    embed = discord.Embed()
+    embed.set_footer(text=footer)
+    message = FakeMessage(author=None, embeds=[embed])
+    return type('I', (), {
+        'data': {'component_type': 2, 'custom_id': 'acq_こうげき'},
+        'message': message,
+        'response': FakeAcqResponse(),
+    })()
+
+
+def test_the_acq_button_answers_the_quiz(monkeypatch):
+    responses = []
+
+    class FakeSession:
+        def __init__(self, bot, name, state):
+            self.name = name
+
+        async def try_response(self, response):
+            responses.append((self.name, response))
+
+    monkeypatch.setattr(quiz_module, 'QuizSession', FakeSession)
+    interaction = _acq_interaction('No.26 ポケモンクイズ - acq')
+
+    asyncio.run(quiz_module.Quiz(FakeBot()).on_interaction(interaction))
+
+    assert responses == [('acq', interaction)]
+    assert interaction.response.deferred  # 開示されなくても「操作に失敗」にしない
+
+
+def test_the_acq_button_on_a_finished_quiz_is_ignored(monkeypatch):
+    responses = []
+
+    class FakeSession:
+        def __init__(self, bot, name, state):
+            pass
+
+        async def try_response(self, response):
+            responses.append(response)
+
+    monkeypatch.setattr(quiz_module, 'QuizSession', FakeSession)
+    interaction = _acq_interaction('No.26 ポケモンクイズ - acq(done)')
+
+    asyncio.run(quiz_module.Quiz(FakeBot()).on_interaction(interaction))
+
+    assert responses == []
+    assert interaction.response.deferred

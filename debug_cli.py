@@ -129,6 +129,7 @@ class FakeMessage(discord.Message):
         self.reference = reference
         self.guild = guild or FakeGuild()
         self.attachments = []
+        self.components = []
         self.reactions = []
         return self
 
