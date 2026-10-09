@@ -380,6 +380,9 @@ class AnswerMessage(discord.Message):
     def __init__(self, content, question):
         self.content = content
         self.author = FakeUser()
+        self.author.sent = []
+        self.author.send = self._direct
+        self.direct_fails = False
         self.reference = type('R', (), {'resolved': question})()
         self.answered_at = question.created_at + datetime.timedelta(seconds=7)
         self.reactions_added = []
@@ -395,8 +398,14 @@ class AnswerMessage(discord.Message):
     async def remove_reaction(self, emoji, user):
         self.reactions_added.remove(emoji)
 
-    async def reply(self, text):
+    async def _direct(self, text):
+        if self.direct_fails:
+            raise discord.Forbidden(type('Resp', (), {'status': 403, 'reason': ''})(), 'closed')
+        self.author.sent.append(text)
+
+    async def reply(self, text, delete_after=None):
         self.replies.append(text)
+        self.deleted_after = delete_after
 
 
 class QuestionMessage:
@@ -418,7 +427,7 @@ class QuestionMessage:
         self.edits.append(kwargs)
 
 
-def _answer(monkeypatch, content, track_id='a1'):
+def _answer(monkeypatch, content, track_id='a1', direct_fails=False):
     reports, logs = [], []
     monkeypatch.setattr(session_module.ub, 'report',
                         lambda *args: reports.append(args) or 1)
@@ -428,6 +437,7 @@ def _answer(monkeypatch, content, track_id='a1'):
     state.bakusoku_mode = False
     question = QuestionMessage(track_id)
     answer = AnswerMessage(content, question)
+    answer.direct_fails = direct_fails
     asyncio.run(_session(state).try_response(answer))
     return question, answer, reports, logs
 
@@ -466,10 +476,20 @@ def test_an_answer_without_the_work_asks_for_it(monkeypatch, library):
     question, answer, reports, logs = _answer(monkeypatch, 'ジムリーダー')
 
     assert answer.reactions_added == ['❓']
-    assert '作品の略称' in answer.replies[0]
+    assert '作品の略称' in answer.author.sent[0] and answer.replies == []  # 本人にだけ
+    assert answer.author.sent[0].startswith('「ジムリーダー」→')
     assert question.edits == [] and reports == []  # 開示も戦績もまだ
     assert logs[0][2] is None
     assert logs[0][-1]['detail'] == intro.AMBIGUOUS  # 認識できなかった理由を残す
+
+
+def test_asking_again_falls_back_to_a_short_lived_reply(monkeypatch, library):
+    # DMを受け取らない人には、返信を少しの間だけ見せる
+    _question, answer, _reports, _logs = _answer(monkeypatch, 'ジムリーダー', direct_fails=True)
+
+    assert answer.author.sent == []
+    assert '作品の略称' in answer.replies[0]
+    assert answer.deleted_after == session_module.ASK_AGAIN_SECONDS
 
 
 def test_a_part_of_the_answer_gets_another_try(monkeypatch, library):
@@ -491,7 +511,7 @@ def test_a_part_of_the_answer_gets_another_try(monkeypatch, library):
     monkeypatch.setattr(intro, 'track_from_message', lambda message: academy)
     question, answer, reports, logs = _answer(monkeypatch, 'トレーナー')
     assert answer.reactions_added == ['❓']
-    assert 'おしい' in answer.replies[0]
+    assert 'おしい' in answer.author.sent[0]
     assert question.edits == [] and reports == [] and logs[0][2] is None
 
 
@@ -506,7 +526,7 @@ def test_an_answer_that_fits_several_songs_lists_them(monkeypatch, library):
     _question, answer, reports, _logs = _answer(monkeypatch, 'SVテーブルシティ')
 
     assert answer.reactions_added == ['❓']
-    assert '決戦も つけて答えてね' in answer.replies[0]
+    assert '決戦も つけて答えてね' in answer.author.sent[0]
     assert reports == []
 
 
