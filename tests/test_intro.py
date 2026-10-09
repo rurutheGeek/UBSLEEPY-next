@@ -625,11 +625,12 @@ def test_q_posts_the_intro_quiz_with_the_filters_from_introdata(library):
 
 
 def _channel_answer(monkeypatch, content, footer='No.26 ポケモンクイズ - introq'):
+    bot = FakeBot()
     channel = FakeVoiceChannel()
     embed = discord.Embed()
     embed.set_footer(text=footer)
     channel.messages.append(
-        FakeMessage(author=FakeUser(), embeds=[embed], channel=channel))
+        FakeMessage(author=bot.user, embeds=[embed], channel=channel))
     message = FakeMessage(author=FakeUser(), content=content, channel=channel)
     names = []
 
@@ -641,7 +642,7 @@ def _channel_answer(monkeypatch, content, footer='No.26 ポケモンクイズ - 
             pass
 
     monkeypatch.setattr(quiz_module, 'QuizSession', FakeSession)
-    asyncio.run(quiz_module.Quiz(FakeBot()).on_message(message))
+    asyncio.run(quiz_module.Quiz(bot).on_message(message))
     return names
 
 

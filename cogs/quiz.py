@@ -356,10 +356,16 @@ class Quiz(commands.Cog):
 
         # bot自身へのリプライ(reference)に反応
         elif message.reference is not None:
-            # リプライ先メッセージのキャッシュを取得
-            message.reference.resolved = await message.channel.fetch_message(
-                message.reference.message_id
-            )
+            # 返信先はDiscordが付けてくる。無いときだけ取りに行く
+            if not isinstance(message.reference.resolved, discord.Message):
+                if message.reference.message_id is None:
+                    return
+                try:
+                    message.reference.resolved = await message.channel.fetch_message(
+                        message.reference.message_id
+                    )
+                except discord.HTTPException:
+                    return  # 返信先が消えている・読めない
 
             # bot自身へのリプライに反応
             if message.reference.resolved.author == self.bot.user:
@@ -405,6 +411,9 @@ class Quiz(commands.Cog):
         if not quiz_names:
             return
         async for quizMessage in message.channel.history(limit=10):
+            # ほかのBot（テスト用など）が出したクイズには反応しない
+            if quizMessage.author != self.bot.user:
+                continue
             if not quizMessage.embeds:
                 continue
             footer = quizMessage.embeds[0].footer.text or ""
@@ -428,11 +437,24 @@ class Quiz(commands.Cog):
         if is_pokemon:
             ub.output_warning("ポケモン名が投稿されましたがクイズ投稿が見つかりませんでした")
 
+    async def _answer_acq(self, interaction: discord.Interaction):
+        """物理特殊クイズのボタンを回答にする。"""
+        embeds = getattr(interaction.message, "embeds", None)
+        footer = (embeds[0].footer.text or "") if embeds else ""
+        if "No.26 ポケモンクイズ - acq" in footer and "(done)" not in footer:
+            await QuizSession(self.bot, "acq", self.state).try_response(interaction)
+        if not interaction.response.is_done():
+            # 回答済み・ほかの人が先に開示したとき。「操作に失敗」にしない
+            await interaction.response.defer()
+
     @commands.Cog.listener()
     async def on_interaction(self, interaction: discord.Interaction):
-        """鳴き声・イントロクイズの「もう一度再生」ボタンを処理する。"""
+        """クイズのボタン（物理特殊クイズの回答、「もう一度再生」）を処理する。"""
         data = interaction.data or {}
         if data.get("component_type") != 2:
+            return
+        if (data.get("custom_id") or "").startswith("acq_"):
+            await self._answer_acq(interaction)
             return
         if data.get("custom_id") != CRY_REPLAY_BUTTON_ID:
             return

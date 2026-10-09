@@ -5,6 +5,7 @@
 cogs/quiz.py の Cog が作り、Discordへの送受信はこのクラスが行う。
 実行時状態は QuizState にまとめ、Cogが持つものを渡す。
 """
+import asyncio
 import copy
 import hashlib
 from pathlib import Path
@@ -64,6 +65,9 @@ def _audio_source(path):
 def play_cry(voice_client, path) -> bool:
     """接続済みのボイスクライアントで鳴き声を流す。"""
     try:
+        # 前の音が鳴っている間は play が失敗するので、止めてから流す
+        if voice_client.is_playing():
+            voice_client.stop()
         voice_client.play(_audio_source(path))
         return True
     except (discord.ClientException, discord.HTTPException, OSError) as error:
@@ -108,7 +112,7 @@ class QuizState:
     def __init__(self):
         self.bq_filter_dict = copy.deepcopy(cfg.DEFAULT_FILTER_DICT)  # 現在の出題条件
         self.bakusoku_mode = True  # 連続出題モード
-        self.processing = False  # 回答開示処理中フラグ
+        self.disclosing = set()  # 回答開示処理中のクイズ投稿（メッセージID）
         self.cry_mode = "latest"  # 鳴き声クイズの出題条件: latest / legacy / mix
         self.cry_filter_dict = {}  # 鳴き声クイズの絞り込み（地方・世代など。空は全部）
         self.intro_works = []  # イントロクイズの絞り込み: 作品（空は全部）
@@ -126,12 +130,15 @@ def cry_candidates(state) -> list:
     pokedex = get_pokedex()
     records = (pokedex.filter(state.cry_filter_dict)
                if state.cry_filter_dict else pokedex.records)
+    # 1匹ずつ存在確認せず、フォルダの一覧を1回ずつ読む
+    available = {kind: {path.stem for path in (CRY_DIRECTORY / kind).glob("*.ogg")}
+                 for kind in allowed}
     candidates = []
     for pokemon in records:
         if pokemon.form_id != "00":
             continue
         kinds = [kind for kind in allowed
-                 if (CRY_DIRECTORY / kind / f"{pokemon.ndex_number}.ogg").exists()]
+                 if str(pokemon.ndex_number) in available[kind]]
         if kinds:
             candidates.append((pokemon, kinds))
     return candidates
@@ -450,9 +457,11 @@ class QuizSession:
             if isMessage:
                 await self.rm.add_reaction("⭕")
             result = await self.__disclose(True, fixAns)
-            # リアクションは結果に基づいて付ける
-            if isMessage and result == 1:
-                await self.rm.remove_reaction("⭕", self.bot.user)
+            if result == 1:
+                # ほかの回答で先に開示された。戦績にもログにも数えない
+                if isMessage:
+                    await self.rm.remove_reaction("⭕", self.bot.user)
+                return
         else:
             judge = "誤答"
             if isinstance(self.rm, discord.Message):
@@ -512,7 +521,9 @@ class QuizSession:
 
         if judge is not None:
             try:
-                ub.report(
+                # DBが遅くてもBot全体を止めないよう、別スレッドで書く
+                await asyncio.to_thread(
+                    ub.report,
                     self.opener.id, f"{self.quizName}{judge}", 1, self.opener.name
                 )  # 回答記録のレポート
             except SaveError:
@@ -520,7 +531,7 @@ class QuizSession:
                 if isinstance(self.rm, discord.Message):
                     await self.rm.reply("戦績の保存に失敗しました")
 
-        self.__log(judge, self.ansList[0])
+        await asyncio.to_thread(self.__log, judge, self.ansList[0])
 
     async def __hint(self):
         ub.output_log(f"{self.quizName}: ヒント表示を実行")
@@ -640,12 +651,34 @@ class QuizSession:
         await self.rm.reply(f"{hintIndex}は{hintValue}です")
 
     async def __disclose(self, tf, answered=None):
-        if self.state.processing:
+        if self.qm.id in self.state.disclosing:
             ub.output_log(f"{self.quizName}: 応答処理実行中につき処理を中断")
             return 1
 
-        self.state.processing = True  # 回答開示処理を始める
+        self.state.disclosing.add(self.qm.id)  # 回答開示処理を始める
+        try:
+            result = await self.__reveal(tf, answered)
+        finally:
+            # 途中で例外が出ても、開示中のまま残さない
+            self.state.disclosing.discard(self.qm.id)
+        if result == 0:
+            await self.__continue()  # 連続出題を試みる
+        return result
+
+    async def __reveal(self, tf, answered):
         ub.output_log(f"{self.quizName}: 回答開示を実行")
+
+        # 処理前に最新のメッセージ状態を取得して確認
+        try:
+            # メッセージを再取得して最新の状態を確認
+            updated_message = await self.qm.channel.fetch_message(self.qm.id)
+            ub.output_log(f"クイズのフッター:{updated_message.embeds[0].footer.text}")
+            if updated_message.embeds and "(done)" in updated_message.embeds[0].footer.text:
+                ub.output_log("クイズの処理中にクイズが終了しています")
+                return 1  # 処理中断（失敗）を示す値
+        except Exception as e:
+            ub.output_log(f"メッセージ取得中にエラー: {e}")
+            # エラーがあっても処理継続
 
         if tf:  # 正解者がいる場合
             clearTime = self.rm.created_at - self.qm.created_at  # 所要時間を求める
@@ -670,6 +703,9 @@ class QuizSession:
                 self.ansList[0]
             )  # self.ansZero['おなまえ']でもいいかも
 
+        if self.state.bakusoku_mode:
+            # 次の問題が出る予告。別の投稿にすると遅くなるので、この行に付ける
+            authorText += " ⏩連続出題ON"
         self.quizEmbed.set_author(name=authorText)  # 回答者の情報を表示
 
         if self.quizName == "bq":
@@ -713,19 +749,6 @@ class QuizSession:
 
         self.quizEmbed.set_footer(text=self.quizEmbed.footer.text + "(done)")
 
-        # 処理前に最新のメッセージ状態を取得して確認
-        try:
-            # メッセージを再取得して最新の状態を確認
-            updated_message = await self.qm.channel.fetch_message(self.qm.id)
-            ub.output_log(f"クイズのフッター:{updated_message.embeds[0].footer.text}")
-            if updated_message.embeds and "(done)" in updated_message.embeds[0].footer.text:
-                ub.output_log("クイズの処理中にクイズが終了しています")
-                self.state.processing = False  # 回答開示処理を終わる
-                return 1  # 処理中断（失敗）を示す値
-        except Exception as e:
-            ub.output_log(f"メッセージ取得中にエラー: {e}")
-            # エラーがあっても処理継続
-
         if isinstance(self.rm, discord.Message):
             try:
                 # 添付は消さない（鳴き声をもう一度聞けるように）
@@ -734,8 +757,7 @@ class QuizSession:
                 await self.qm.channel.send(embed=self.quizEmbed)
 
         elif isinstance(self.rm, discord.Interaction):
-            fixView = discord.ui.View()
-            fixView.from_message(self.qm)
+            fixView = discord.ui.View.from_message(self.qm)
             for child in fixView.children:
                 child.disabled = True
             try:
@@ -746,23 +768,14 @@ class QuizSession:
             except discord.errors.Forbidden:
                 pass
 
-        self.state.processing = False  # 回答開示処理を終わる
-        await self.__continue()  # 連続出題を試みる
-
         return 0
 
     async def __continue(self):
         if self.state.bakusoku_mode:
             ub.output_log(f"{self.quizName}: 連続出題を実行")
-            loadingEmbed = discord.Embed(
-                title="**BAKUSOKU MODE ON**",
-                color=0x0000FF,
-                description="次のクイズを生成チュウ",
-            )
-            loadMessage = await self.qm.channel.send(embed=loadingEmbed)
+            # 「生成チュウ」の表示は送信と削除で往復が増えるので出さない
             await QuizSession(self.bot, self.quizName, self.state).post(
                 self.qm.channel, voiceChannel=self.voice_channel)
-            await loadMessage.delete()
 
     def __answers(self):
         ub.output_log(f"{self.quizName}: 正答リスト生成を実行")
