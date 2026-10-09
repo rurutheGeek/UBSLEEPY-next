@@ -648,9 +648,9 @@ _REGIONS = ("カントー", "ジョウト", "ホウエン", "シンオウ", "イ
 
 
 def distinguishers(track, text: str) -> list:
-    """聞き返すときに、答えへ足してほしいもの（決戦・地方・時間帯・かっこ書き）。
+    """聞き返すときに、答えへ足してほしいもの（決戦・地方・時間帯）。
 
-    候補の曲名どうしで違うところだけを返す。候補が見つからなければ空。
+    候補の曲名どうしで違うところだけを返す。これで区別できなければ空。
     """
     titles = candidates(track, text)
     if len(titles) < 2:
@@ -663,8 +663,6 @@ def distinguishers(track, text: str) -> list:
         axes.append("時間帯")
     if len({frozenset(p & set(_REGIONS)) for p in places}) > 1:
         axes.insert(1 if axes[:1] == ["決戦"] else 0, "地方")
-    if len({frozenset(p - {"昼", "夜", *_REGIONS}) for p in places}) > 1:
-        axes.append("かっこ書きの言葉")
     return axes
 
 
