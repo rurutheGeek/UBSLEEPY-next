@@ -159,7 +159,7 @@ class Quiz(commands.Cog):
         get_pokedex()
 
     @discord.app_commands.command(
-        name="q", description="クイズを出題します（鳴き声クイズはボイスでも再生）")
+        name="q", description="現在の出題設定に基づいてクイズを出題します")
     @scoped
     @discord.app_commands.describe(
         quizname="クイズの種別 未記入で種族値クイズが指定されます"
