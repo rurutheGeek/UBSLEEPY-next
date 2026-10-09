@@ -6,11 +6,13 @@
 """
 import asyncio
 import copy
+import os
 
 import discord
-from discord.ext import commands
+from discord.ext import commands, tasks
 
 import bot_module.config as cfg
+from bot_module.logging_setup import logger
 from bot_module.command_scope import scoped
 import bot_module.func as ub
 import bot_module.guild_settings as guild_settings
@@ -187,6 +189,25 @@ class Quiz(commands.Cog):
         self.bot = bot
         self.state = QuizState()
         self._replay_counts = {}  # 鳴き声の再生ボタン: メッセージID -> 回数
+
+    async def cog_load(self):
+        self.refresh_intro_lists.start()
+
+    async def cog_unload(self):
+        self.refresh_intro_lists.cancel()
+
+    @tasks.loop(seconds=60)
+    async def refresh_intro_lists(self):
+        """イントロクイズの対応リストをpkdbから読み直す（直しを配備なしで反映する）。"""
+        if not os.environ.get("PKDB_PASSWORD"):
+            return
+        try:
+            lists = await asyncio.to_thread(intro.fetch_database_lists)
+        except Exception as error:
+            logger.error(f"pkdbからイントロクイズの対応リストを読めませんでした\n{error}")
+            return
+        if intro.use_database_lists(lists):
+            logger.info("イントロクイズの対応リストを読み直しました")
 
     @commands.Cog.listener()
     async def on_ready(self):

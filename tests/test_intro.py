@@ -893,3 +893,38 @@ def test_a_song_of_the_work_wins_over_one_only_reused_there(monkeypatch):
     assert intro.judge(own, 'orasディアルガ・パルキア') == intro.CORRECT
     assert intro.judge(reused, 'orasディアルガ・パルキア') == intro.AMBIGUOUS_SONG
     assert intro.judge(reused, 'dpディアルガ・パルキア') == intro.CORRECT
+
+
+def test_answer_lists_can_come_from_the_database(monkeypatch):
+    pt = 'ポケモン プラチナ'
+    brain = intro.IntroTrack('h1', '戦闘！フロンティアブレーン', pt, '戦闘')
+    old = intro.IntroTrack('h2', '戦闘！フロンティアブレーン（Ver. 1.0）', pt, '戦闘')
+    monkeypatch.setattr(intro, 'load_tracks', lambda: [brain, old])
+    lists = intro.rows_from_database(
+        aliases=[('Pt', '戦闘！フロンティアブレーン', 'Pt', 'クロツグ'),
+                 ('Pt', '戦闘！フロンティアブレーン', 'HGSS', 'ネジキ')],
+        appearances=[('Pt', '戦闘！フロンティアブレーン', 'HGSS'),
+                     ('Pt', '戦闘！フロンティアブレーン', 'BW2')],
+        secrets=[('Pt', '戦闘！フロンティアブレーン（Ver. 1.0）', '古い音源')])
+    assert lists['aliases'] == [['Pt', '戦闘！フロンティアブレーン', 'クロツグ']]
+    assert lists['appearances'] == [
+        ['Pt', '戦闘！フロンティアブレーン', 'HGSS', 'ネジキ'],
+        ['Pt', '戦闘！フロンティアブレーン', 'BW2', '']]
+
+    try:
+        assert intro.use_database_lists(lists) is True
+        assert intro.use_database_lists(lists) is False  # 同じ内容なら読み直さない
+        for name in ('listed_aliases', 'appearances', 'qualified', 'native', 'secret'):
+            brain.__dict__.pop(name, None)
+        assert intro.judge(brain, 'ptクロツグ') == intro.CORRECT
+        assert intro.judge(brain, 'hgssネジキ') == intro.CORRECT
+        assert intro.judge(brain, 'ptネジキ') != intro.CORRECT
+        assert old.secret and not brain.secret
+    finally:
+        intro.use_database_lists(None)  # CSVへ戻す
+
+
+def test_database_lists_are_skipped_without_a_password(monkeypatch):
+    monkeypatch.delenv('PKDB_PASSWORD', raising=False)
+    monkeypatch.setattr(intro, 'fetch_database_lists', lambda: 1 / 0)
+    assert intro.refresh_from_database() is False

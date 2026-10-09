@@ -14,7 +14,11 @@
 - メモ: 自由に書く（取り込みでは読まない）。
 
 取り込むと resource/intro_aliases.csv と resource/intro_appearances.csv を
-表の内容で作り直す（この2つは表から作るもので、手では直さない）。
+表の内容で作り直す。
+
+Botが使うのは pkdb の app_intro_* 表（tools/intro_db.py）。表で直したものを
+反映するには、取り込んだあと `python tools/intro_db.py push` でpkdbを置き換える。
+pkdbを直接直したあとに表を書き出すときは、先に `python tools/intro_db.py pull`。
 """
 import csv
 from pathlib import Path
