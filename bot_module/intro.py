@@ -313,10 +313,15 @@ def answer_cores(title: str) -> list:
     for core in list(cores):
         if "の" in core.strip("の"):
             cores.append(core.replace("の", ""))  # フラダリラボのオヤブン -> フラダリラボオヤブン
+    base_cores = list(cores)
     for place in places:  # （カントー）など
         for core in list(cores):
             if not any(other in core for other in places):
                 cores += [place + core, place + "の" + core, core + place]
+    if len(places) > 1:  # （ジョウト）（GBプレイヤー）は両方言えば強い答えになる
+        for core in base_cores:
+            for joined in ("".join(places), "".join(reversed(places))):
+                cores += [joined + core, joined + "の" + core, core + joined]
     return list(dict.fromkeys(core for core in cores if core))
 
 
@@ -355,7 +360,7 @@ class IntroTrack:
             named |= {canon(core) for core in answer_cores(name)
                       if any(place in core for place in answer_places(name))}
         for core in answer_cores(self.title):
-            placed = not places or any(place in core for place in places)
+            placed = not places or all(place in core for place in places)
             (strong if placed and not final else loose).add(canon(core))
             prefixed = _FINAL_PREFIX.match(core)
             if prefixed:  # チャンピオンネモ -> ネモ・決戦ネモ（どちらも弱）

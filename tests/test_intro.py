@@ -129,6 +129,10 @@ def test_the_opponent_is_taken_from_the_title():
     assert cores('戦闘! フラダリラボのポケモン') == [
         'フラダリラボのポケモン', 'フラダリラボ', 'フラダリラボポケモン']
     assert cores('バトルタワー') == ['バトルタワー']
+    # かっこ書きが2つあれば、両方言った答えも通る
+    both = cores('戦闘！スイクン（ジョウト）（GBプレイヤー）')
+    assert 'ジョウトGBプレイヤースイクン' in both
+    assert 'GBプレイヤージョウトのスイクン' in both
 
 
 def test_the_answer_needs_the_work_when_it_is_in_several_works(library):
