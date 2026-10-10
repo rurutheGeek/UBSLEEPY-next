@@ -44,8 +44,8 @@ python debug_cli.py                  # 対話モード（q bq → answer / hint 
 
 ### コマンドの登録
 
-- スラッシュコマンドには `@discord.app_commands.command` の下に `@scoped`（`bot_module/command_scope.py`）を付ける。debug のときだけ開発用ギルドへ、通常はグローバルに登録される。
-- 通常起動はグローバル登録だけ。ギルドコマンドのコピーは配らない（グローバルと両方が出て、同じコマンドが2つずつ並ぶ）。起動時に `GUILD_IDS` のサーバーに残っているコピーを消す。
+- スラッシュコマンドには `@discord.app_commands.command` の下に `@scoped`（`bot_module/command_scope.py`）を付ける。debug のときは開発用ギルドにだけ登録される。
+- 通常起動では、Bot が居るサーバーそれぞれへ**ギルドコマンドとして**登録する（再起動ですぐ反映。あとから追加されたサーバーへは `on_guild_join` で登録）。グローバルには登録せず、起動のたびに空にする（両方あると同じコマンドが2つずつ並ぶ）。DM ではコマンドは出ない。
 - コマンドを足したら `tests/test_cogs.py` の `EXPECTED_COMMANDS` と `cogs/help.py` の説明も更新する。Cog を足したら `main.py` と `tests/test_cogs.py` の `COGS` の両方へ。
 - `/bqdata`・`/crydata`・`/introdata` はスラッシュコマンドではなく、`cogs/quiz.py` の `on_message` が拾うテキストコマンド（`cogs/help.py` の `TEXT_COMMANDS` に説明がある）。
 
@@ -58,7 +58,7 @@ python debug_cli.py                  # 対話モード（q bq → answer / hint 
 - `cogs/quiz.py` の Cog が `QuizState`（出題条件・連続出題モードなど。再起動でリセット）を持ち、`bot_module/quiz_session.py` の `QuizSession` が出題・回答受付・判定・開示を行う。
 - 出題中のクイズはメモリに持たず、**クイズの投稿そのものから復元する**。Embed のフッター `No.26 ポケモンクイズ - <種別>` でクイズの投稿と種別を見分け、開示が済むと末尾に `(done)` が付く。回答はクイズへの返信か、チャンネルにそのまま書かれた名前（直近10件から未回答のクイズを探す）で受ける。鳴き声・イントロは添付ファイル名が `cry-<nonce>-<ハッシュ>.ogg` で、ハッシュに答えを混ぜてある（ファイル名から答えは読めないが、候補と照合すれば逆算できる）。
 - 図鑑説明クイズ（`dexq`、`bot_module/dex_text.py`）は、pkdb の `pokemon_pokedex_text`（説明文）と `pokemon_evolution`（進化のつながり）を初回に一度だけ読む（pkdb が無い手元は `tools/fetch_dex_texts.py` で `resource/pokedex_text.csv`・`resource/pokedex_evolution.csv` を書き出す。Git に入れない）。説明文に出てくるポケモンの名前は、答えに限らずみな `****` に伏せる（進化前の名前でも答えが分かるため）。答えは投稿の問題文（伏せ字にした文）から引き直し、同じ文になるポケモンはみな正解。フォームの説明はそのフォームの名前で答える（種族名で答えたら基本の姿）。別のフォーム・進化の前後は「おしい」と返し、戦績に数えない（判定ログは `judge` が空、`detail` が `おしい`）。
-- 図鑑番号クイズは2種（`ntopq`: 番号→ポケモン、`ptonq`: ポケモン→番号）。正解から `NUMBER_NEAR`（3）以内の番号は「おしい」。`ptonq` は数字で答え、チャンネルにそのまま書いた数字も回答として拾う。
+- 図鑑番号クイズ（`noq`）は `/q` の `mode` で出し方を選ぶ（既定はポケモン→番号、`番号→ポケモン` も選べる）。種別は1つで、出し方は問題文（`No.510 -> [?]` / `レパルダス -> [?]`）から見分ける（`QuizSession.variant`）。正解から `NUMBER_NEAR`（3）以内の番号は「おしい」。ポケモン→番号は数字で答え、チャンネルにそのまま書いた数字も回答として拾う。
 - 回答・ギブアップ・ヒントのたびに判定ログ（`quiz_log` テーブル。DBが無ければ `log/<種別>log.csv`）へ1行残す（DBには回答者のユーザーIDも入る）。出題のたびに `quiz_post` テーブルへも1行残す（出題条件・Botの版つき。回答の付かなかった出題を数えるため。`quiz_message_id` で `quiz_log` とつながる）。列の意味は `bot_module/save.py` の `CREATE_SQL` のコメントにある。`/quizrecord` はここから苦手な問題を出す（戦績の数はセーブデータから）。全体の集計は shake-cloud の Botポータル（`stacks/bot-portal/app/quizlog.py`、「クイズ分析」タブ）が読むので、列や `judge` の値を変えるときはそちらも合わせる。保存する内容を変えたら `docs/privacy.md` も直す。
 - 音源（`resource/cry/`・`resource/intro/`）と画像（`resource/image/`）は Git に入れない。`tools/fetch_cries.py`・`tools/build_intro_clips.py`（ffmpeg が必要）で用意する。
 

@@ -25,6 +25,9 @@ from bot_module.quiz_session import (
 from bot_module import save
 from bot_module.save import SaveError
 
+# /q の mode: 図鑑番号クイズの出し方（True は番号からポケモンを当てる）
+NUMBER_MODES = {"ポケモン→番号": False, "番号→ポケモン": True}
+
 # /quizrecord で並べる苦手な問題の数（記録が少なければ、あるだけ）
 WEAK_LIMIT = 10
 
@@ -221,15 +224,21 @@ class Quiz(commands.Cog):
         name="q", description="現在の出題設定に基づいてクイズを出題します")
     @scoped
     @discord.app_commands.describe(
-        quizname="クイズの種別 未記入で種族値クイズが指定されます"
+        quizname="クイズの種別 未記入で種族値クイズが指定されます",
+        mode="図鑑番号クイズの出し方 未記入でポケモンから番号を当てます",
     )
     @discord.app_commands.choices(
         quizname=[
             discord.app_commands.Choice(name=val, value=val)
             for val in list(cfg.QUIZNAME_DICT.keys())
-        ]
+        ],
+        mode=[
+            discord.app_commands.Choice(name=val, value=val)
+            for val in NUMBER_MODES
+        ],
     )
-    async def q(self, interaction: discord.Interaction, quizname: str = "種族値クイズ"):
+    async def q(self, interaction: discord.Interaction,
+                quizname: str = "種族値クイズ", mode: str = None):
         seiseiEmbed = discord.Embed(
             title="**妖精さん おしごとチュウ**",
             color=0xFFFFFF,  # デフォルトカラー
@@ -237,7 +246,9 @@ class Quiz(commands.Cog):
         )
         await interaction.response.send_message(embed=seiseiEmbed, delete_after=1)
         # ボイスチャンネル付属のテキストチャットで出したときは、そこで鳴き声を流す
-        await QuizSession(self.bot, cfg.QUIZNAME_DICT[quizname], self.state).post(
+        session = QuizSession(self.bot, cfg.QUIZNAME_DICT[quizname], self.state)
+        session.fromNumber = NUMBER_MODES.get(mode, False)
+        await session.post(
             interaction.channel, voiceChannel=voice_channel_for(interaction.channel))
 
     @commands.Cog.listener()
@@ -451,12 +462,12 @@ class Quiz(commands.Cog):
         elif (message.guild is not None
               and message.channel.id == guild_settings.setting(
                   message.guild.id, 'QUIZ_CHANNEL_ID')):
-            await self._answer_in_channel(message, ("bq", "cryq", "introq", "dexq", "ntopq", "ptonq"))
+            await self._answer_in_channel(message, ("bq", "cryq", "introq", "dexq", "noq"))
 
         # ボイスチャンネル付属のテキストチャット（鳴き声クイズへの回答）
         elif (message.guild is not None
               and voice_channel_for(message.channel) is not None):
-            await self._answer_in_channel(message, ("cryq", "introq", "bq", "dexq", "ntopq", "ptonq"))
+            await self._answer_in_channel(message, ("cryq", "introq", "bq", "dexq", "noq"))
 
     async def _answer_in_channel(self, message, quiz_names):
         """チャンネルに書かれたポケモン名・曲名を、最新の未回答クイズへの回答にする。
@@ -472,7 +483,7 @@ class Quiz(commands.Cog):
         quiz_names = [
             name for name in quiz_names
             if (is_track if name == "introq"
-                else is_number if name == "ptonq" else is_pokemon)]
+                else (is_number or is_pokemon) if name == "noq" else is_pokemon)]
         if not quiz_names:
             return
         async for quizMessage in message.channel.history(limit=10):
@@ -487,6 +498,12 @@ class Quiz(commands.Cog):
             for name in quiz_names:
                 if f"No.26 ポケモンクイズ - {name}" not in footer:
                     continue
+                if name == "noq":
+                    # 番号から出した問題は名前、ポケモンから出した問題は数字だけ拾う
+                    from_number = (
+                        quizMessage.embeds[0].description or "").startswith("No.")
+                    if not (is_pokemon if from_number else is_number):
+                        continue
                 # メッセージをリプライに偽装する
                 message.reference = discord.MessageReference(
                     message_id=quizMessage.id,

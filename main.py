@@ -12,7 +12,7 @@ from discord.ext import commands
 from dotenv import load_dotenv  # type: ignore
 
 # 分割されたモジュール
-from bot_module.config import DEBUG_MODE, DEVELOPER_GUILD_ID, GUILD_IDS
+from bot_module.config import DEBUG_MODE, DEVELOPER_GUILD_ID
 import bot_module.func as ub
 from bot_module.logging_setup import setup_logging
 from bot_module.pokedex import get_pokedex
@@ -90,25 +90,27 @@ class UBSleepy(commands.Bot):
             ub.output_log(f"登録済のサーバーを1個読み込みました\n#0 {guild.name}")
             return
 
-        # グローバル登録（全サーバー向け。反映に最大1時間かかることがある）
-        await self.tree.sync()
-
-        # 以前はクラブのサーバーへギルドコマンドのコピーも配っていたが、グローバルと
-        # 両方が出て同じコマンドが2つずつ並ぶ。残っているコピーを消す
-        for guild_id in GUILD_IDS:
-            guild = self.get_guild(guild_id)
-            if guild is None:
-                continue
-            self.tree.clear_commands(guild=guild)
-            await self.tree.sync(guild=guild)
+        # コマンドは、居るサーバーそれぞれへギルドコマンドとして登録する（すぐ反映される）。
+        # グローバルにも登録すると同じコマンドが2つずつ並ぶので、グローバルは空にする
+        # （手元のコマンド定義は、サーバーへ写す元として残す）
+        await self.http.bulk_upsert_global_commands(self.application_id, [])
+        for guild in self.guilds:
+            await self.register_commands(guild)
 
         synced = [f"\n#{i} {guild.name}" for i, guild in enumerate(self.guilds)]
         ub.output_log(
             f"コマンドを登録しました（{len(self.tree.get_commands())}個）"
             f"{''.join(synced)}")
 
+    async def register_commands(self, guild):
+        """コマンドをそのサーバーのギルドコマンドとして登録する。"""
+        self.tree.copy_global_to(guild=guild)
+        await self.tree.sync(guild=guild)
+
     async def on_guild_join(self, guild):
         ub.output_log(f"サーバーに追加されました: {guild.name}（{guild.id}）")
+        if not DEBUG_MODE:
+            await self.register_commands(guild)
         channel = greeting_channel(guild)
         if channel is None:
             return

@@ -685,9 +685,11 @@ class FakeInteraction:
         self.response = FakeResponse()
 
 
-def test_q_has_no_options_for_one_quiz_only():
-    # /q は全クイズ共用。イントロクイズの絞り込みは /introdata だけで行う
-    assert [parameter.name for parameter in quiz_module.Quiz.q.parameters] == ['quizname']
+def test_q_has_no_options_for_the_intro_quiz():
+    # イントロクイズの絞り込みは /introdata だけで行う。/q のオプションは、
+    # クイズの種別と、図鑑番号クイズの出し方（mode）だけ
+    assert [parameter.name for parameter in quiz_module.Quiz.q.parameters] == [
+        'quizname', 'mode']
 
 
 def test_q_posts_the_intro_quiz_with_the_filters_from_introdata(library):
