@@ -432,13 +432,15 @@ class Harness:
 
     async def cmd_q(self, args):
         quizname = args[0] if args else "種族値クイズ"
+        mode = args[1] if len(args) > 1 else None  # 図鑑番号クイズの出し方
         if quizname in self.cfg.QUIZNAME_DICT.values():
             quizname = next(k for k, v in self.cfg.QUIZNAME_DICT.items() if v == quizname)
         if quizname not in self.cfg.QUIZNAME_DICT:
             print(f"使い方: q [{'|'.join(self.cfg.QUIZNAME_DICT)}]")
             return
         before = len(self.channel.sent)
-        await self.quiz_cog.q.callback(self.quiz_cog, self.interaction, quizname)
+        await self.quiz_cog.q.callback(
+            self.quiz_cog, self.interaction, quizname, mode)
         posted = [m for m in self.channel.sent[before:] if m.embeds]
         if posted:
             self.quiz_message = posted[-1]

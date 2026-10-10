@@ -67,32 +67,54 @@ def test_main_setup_hook_loads_all_cogs():
     assert _global_command_names(bot) == EXPECTED_COMMANDS
 
 
-def test_on_ready_syncs_globally_and_clears_the_guild_copies(monkeypatch):
+def _guild_only_bot(monkeypatch):
     import main
 
     monkeypatch.setattr(main, "DEBUG_MODE", False)
-    monkeypatch.setattr(main, "GUILD_IDS", [111111111111111111])
     bot = main.UBSleepy()
     calls = []
-    cleared = []
 
     async def fake_sync(*, guild=None):
-        calls.append(guild.id if guild else None)
+        calls.append(("sync", guild.id if guild else None))
         return []
 
+    async def fake_upsert(application_id, payload):
+        calls.append(("global", payload))
+
     bot.tree.sync = fake_sync
-    bot.tree.clear_commands = lambda guild: cleared.append(guild.id)
-    bot.get_guild = lambda guild_id: type("G", (), {"id": guild_id})()
+    bot.tree.copy_global_to = lambda guild: calls.append(("copy", guild.id))
+    monkeypatch.setattr(bot.http, "bulk_upsert_global_commands", fake_upsert)
+    monkeypatch.setattr(
+        type(bot), "application_id", property(lambda self: 1), raising=False)
+    return bot, calls
+
+
+def test_on_ready_registers_guild_commands_only(monkeypatch):
+    import main
+
+    bot, calls = _guild_only_bot(monkeypatch)
+    guilds = [type("G", (), {"id": guild_id, "name": "g"})() for guild_id in (11, 22)]
+    monkeypatch.setattr(main.UBSleepy, "guilds", property(lambda self: guilds))
 
     asyncio.run(bot.on_ready())
 
-    # グローバルだけ登録し、クラブのギルドに残るコピーは消す（2つずつ並ばないように）
-    assert calls == [None, 111111111111111111]
-    assert cleared == [111111111111111111]
+    # グローバルは空にし、居るサーバーごとにギルドコマンドを登録（2つずつ並ばないように）
+    expected = [("global", []), ("copy", 11), ("sync", 11), ("copy", 22), ("sync", 22)]
+    assert calls == expected
 
     # 2回目のon_readyは何もしない
     asyncio.run(bot.on_ready())
-    assert calls == [None, 111111111111111111]
+    assert calls == expected
+
+
+def test_a_joined_guild_gets_the_commands(monkeypatch):
+    bot, calls = _guild_only_bot(monkeypatch)
+    guild = type("G", (), {"id": 33, "name": "new", "system_channel": None,
+                           "text_channels": []})()
+
+    asyncio.run(bot.on_guild_join(guild))
+
+    assert calls == [("copy", 33), ("sync", 33)]
 
 
 def test_on_ready_debug_syncs_only_the_developer_guild(monkeypatch):

@@ -212,17 +212,17 @@ def test_a_form_text_is_answered_by_the_form_name(
     assert "こたえ: ヤドラン(ガラルのすがた)" in out
 
 
-def _number_quiz(harness, monkeypatch, quiz_name):
+def _number_quiz(harness, monkeypatch, *mode):
     import bot_module.quiz_session as session_module
 
     monkeypatch.setattr(
         session_module.random, "choice",
         lambda candidates: next(p for p in candidates if p.species == "510"))
-    asyncio.run(harness.dispatch(["q", quiz_name]))
+    asyncio.run(harness.dispatch(["q", "noq", *mode]))
 
 
 def test_the_number_quiz_asks_the_pokemon(harness, monkeypatch, capsys):
-    _number_quiz(harness, monkeypatch, "ntopq")
+    _number_quiz(harness, monkeypatch, "番号→ポケモン")
     out = capsys.readouterr().out
     assert "No.510 -> [?]" in out
     assert "レパルダス" not in out
@@ -233,7 +233,7 @@ def test_the_number_quiz_asks_the_pokemon(harness, monkeypatch, capsys):
     assert "誤答" not in out
 
     asyncio.run(harness.dispatch(["answer", "ピカチュウ"]))
-    assert "ntopq誤答" in capsys.readouterr().out
+    assert "noq誤答" in capsys.readouterr().out
 
     asyncio.run(harness.dispatch(["answer", "レパルダス"]))
     out = capsys.readouterr().out
@@ -242,7 +242,7 @@ def test_the_number_quiz_asks_the_pokemon(harness, monkeypatch, capsys):
 
 
 def test_the_number_quiz_asks_the_number(harness, monkeypatch, capsys):
-    _number_quiz(harness, monkeypatch, "ptonq")
+    _number_quiz(harness, monkeypatch)  # 出し方を選ばなければ、ポケモンから番号
     assert "レパルダス -> [?]" in capsys.readouterr().out
 
     asyncio.run(harness.dispatch(["answer", "ピカチュウ"]))
@@ -255,7 +255,7 @@ def test_the_number_quiz_asks_the_number(harness, monkeypatch, capsys):
         assert "おしいロ！ 番号が 近いロ" in out and "誤答" not in out
 
     asyncio.run(harness.dispatch(["answer", "506"]))
-    assert "ptonq誤答" in capsys.readouterr().out
+    assert "noq誤答" in capsys.readouterr().out
 
     asyncio.run(harness.dispatch(["hint"]))
     assert "出身地はイッシュです" in capsys.readouterr().out

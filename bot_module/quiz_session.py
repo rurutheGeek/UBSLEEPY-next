@@ -191,6 +191,15 @@ class QuizSession:
         self.quizName = quizName
         self.state = state or QuizState()
         self.voice_channel = None  # 出題時に鳴き声を流すボイスチャンネル
+        # 図鑑番号クイズの出し方: 番号からポケモンを当てる（既定はポケモンから番号）
+        self.fromNumber = False
+
+    @property
+    def variant(self):
+        """判定の分かれ目に使う種別。図鑑番号クイズ（noq）は出し方で2つに分ける。"""
+        if self.quizName != "noq":
+            return self.quizName
+        return "ntopq" if self.fromNumber else "ptonq"
 
     async def post(self, sendChannel, voiceChannel=None):
         ub.output_log(f"{self.quizName}: クイズを出題します")
@@ -330,14 +339,14 @@ class QuizSession:
             quizEmbed.description = entry.question
             quizEmbed.set_thumbnail(url=self.__imageLink())  # 正解までDecamark
 
-        elif self.quizName in ("ntopq", "ptonq"):
+        elif self.quizName == "noq":
             candidates = [p for p in get_pokedex().records if p.form_id == "00"]
             if not candidates:
                 await sendChannel.send("現在の出題条件に合うポケモンがいません")
                 return
             qDatas = random.choice(candidates)
             quizEmbed.title = "図鑑番号クイズ"
-            if self.quizName == "ntopq":
+            if self.variant == "ntopq":
                 quizEmbed.description = f"No.{qDatas.species} -> [?]"
                 quizEmbed.set_thumbnail(url=self.__imageLink())  # 正解までDecamark
             else:
@@ -410,7 +419,7 @@ class QuizSession:
             answer, answer_id = pokemon.name, pokemon_id(pokemon)
             if self.quizName == "bq":
                 question = quizContent.split(" ")[0]
-            elif self.quizName in ("etojq", "jtoeq", "ctojq", "ntopq", "ptonq"):
+            elif self.variant in ("etojq", "jtoeq", "ctojq", "ntopq", "ptonq"):
                 question = re.findall(r"^(.+)\s->", quizEmbed.description)[0]
             else:
                 question = pokemon.name
@@ -457,6 +466,9 @@ class QuizSession:
             # customIDが"acq_こうげき/とくこう/同値"のようなかたちを想定
 
         self.quizEmbed = self.qm.embeds[0]
+        # 図鑑番号クイズの出し方は、問題文（No.510 -> / レパルダス ->）から見分ける
+        self.fromNumber = bool(
+            re.match(r"No\.\d+ ->", self.quizEmbed.description or ""))
         # この時点で出ているヒント（判定ログに残す。ヒントを足す前に控える）
         self.hintsShown = [field.name for field in self.quizEmbed.fields]
         self.hintGiven = None
@@ -469,7 +481,7 @@ class QuizSession:
         hints = []
 
         # クイズごとにヒント項目を作成する
-        if self.quizName in ["bq", "ctojq", "cryq", "dexq", "ntopq"]:
+        if self.variant in ["bq", "ctojq", "cryq", "dexq", "ntopq"]:
             hints = [
                 "ヒント",
                 "タイプ",
@@ -499,7 +511,7 @@ class QuizSession:
             ]
         elif self.quizName == "jtoeq":
             hints = ["文字数", "モジスウ", "頭文字", "カシラモジ", "イニシャル"]
-        elif self.quizName == "ptonq":
+        elif self.variant == "ptonq":
             hints = ["ヒント", "地方", "チホウ", "作品", "サクヒン"]
         elif self.quizName == "introq":
             hints = ["ヒント", "作品", "サクヒン"]
@@ -509,7 +521,7 @@ class QuizSession:
             self.examText = self.qm.content.split(" ")[0]
         elif self.quizName == "acq":
             self.examText = self.quizEmbed.description.split(" ")[0]
-        elif self.quizName in ["etojq", "jtoeq", "ctojq", "ntopq", "ptonq"]:
+        elif self.variant in ["etojq", "jtoeq", "ctojq", "ntopq", "ptonq"]:
             self.examText = re.findall(r"^(.+)\s->", self.quizEmbed.description)[0]
         elif self.quizName == "cryq":
             entry = cry_from_message(self.qm)
@@ -567,20 +579,20 @@ class QuizSession:
         repPokeData = None
         nearReply = None  # 「おしい」の返事（戦績には数えない）
         notNumber = False
-        if self.quizName in ["bq", "etojq", "ctojq", "cryq", "dexq", "ntopq"]:
+        if self.variant in ["bq", "etojq", "ctojq", "cryq", "dexq", "ntopq"]:
             if found := ub.fetch_pokemon(self.ansText):
                 repPokeData = found[0]
                 fixAns = repPokeData.name
                 if self.quizName == "dexq":
                     fixAns, nearReply = self.__judge_dex(found)
-                elif self.quizName == "ntopq":
+                elif self.variant == "ntopq":
                     # 当てるのは種族。フォームの名前で答えても正解
                     gap = abs(int(repPokeData.species) - int(self.ansZero.species))
                     if gap == 0:
                         fixAns = self.ansList[0]
                     elif gap <= NUMBER_NEAR:
                         nearReply = "おしいロ！ 図鑑番号が 近い ポケモンだロ"
-        elif self.quizName == "ptonq":
+        elif self.variant == "ptonq":
             number = parse_number(self.rawText)
             if number is None:
                 notNumber = True
@@ -620,7 +632,7 @@ class QuizSession:
                 await self.__disclose(False)
 
         if (
-            self.quizName in ["bq", "etojq", "ctojq", "cryq", "dexq", "ntopq"]
+            self.variant in ["bq", "etojq", "ctojq", "cryq", "dexq", "ntopq"]
             and repPokeData is None
         ):  # 例外処理
             judge = None
@@ -727,7 +739,7 @@ class QuizSession:
         pokemon = self.ansZero
         hintIndex = None
 
-        if self.quizName in ["bq", "etojq", "ctojq", "cryq", "dexq", "ntopq"]:
+        if self.variant in ["bq", "etojq", "ctojq", "cryq", "dexq", "ntopq"]:
             if (
                 self.ansText == "ヒント"
             ):  # まだ出ていないヒントからランダムにヒントを出す
@@ -812,7 +824,7 @@ class QuizSession:
             elif self.ansText in ["頭文字", "カシラモジ", "イニシャル"]:
                 hintIndex = "イニシャル"
 
-        elif self.quizName == "ptonq":
+        elif self.variant == "ptonq":
             # 番号の見当がつくもの（地方・初登場作品）だけ出す
             if self.ansText in ["作品", "サクヒン"]:
                 hintIndex = "初登場作品"
@@ -938,7 +950,7 @@ class QuizSession:
                     f"{self.examText}は{self.ansList[0]}の方が高い"
                 )
 
-        elif self.quizName in ["etojq", "jtoeq", "ctojq", "ntopq", "ptonq"]:
+        elif self.variant in ["etojq", "jtoeq", "ctojq", "ntopq", "ptonq"]:
             self.quizEmbed.description = f"{self.examText} -> [{self.ansList[0]}]"
             if self.quizName == "etojq":
                 if self.ansZero.etymology:
@@ -978,7 +990,9 @@ class QuizSession:
         if self.state.bakusoku_mode:
             ub.output_log(f"{self.quizName}: 連続出題を実行")
             # 「生成チュウ」の表示は送信と削除で往復が増えるので出さない
-            await QuizSession(self.bot, self.quizName, self.state).post(
+            session = QuizSession(self.bot, self.quizName, self.state)
+            session.fromNumber = self.fromNumber  # 同じ出し方で続ける
+            await session.post(
                 self.qm.channel, voiceChannel=self.voice_channel)
 
     def __answers(self):
@@ -1023,11 +1037,11 @@ class QuizSession:
             answers = list(dict.fromkeys(
                 shown for _record, shown in self.dexAnswers.values()))
 
-        elif self.quizName == "ntopq":
+        elif self.variant == "ntopq":
             aData = pokedex.base(self.examText.removeprefix("No."))
             answers.append(aData.name)
 
-        elif self.quizName == "ptonq":
+        elif self.variant == "ptonq":
             aData = ub.fetch_pokemon(self.examText)[0]
             answers.append(aData.species)
 
@@ -1070,7 +1084,7 @@ class QuizSession:
         if searchWord is not None:
             if self.quizName in [
                     "bq", "acq", "etojq", "jtoeq", "ctojq", "cryq", "dexq",
-                    "ntopq", "ptonq"]:
+                    "noq"]:
                 displayImage = ub.fetch_pokemon(searchWord)
                 if displayImage:  # 回答ポケモンが発見できた場合
                     link = f"{cfg.EX_SOURCE_LINK}art/{displayImage[0].image_number}.png"
