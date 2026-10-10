@@ -819,7 +819,7 @@ class QuizSession:
             entry = self.dexEntries[0]
             self.quizEmbed.description = (
                 f'{entry.text}\nこたえ: {",".join(self.ansList)}'
-                f"（{entry.titles_label()}）")
+                f"\n作品: {entry.titles_label()}")
         elif self.quizName == "introq":
             self.quizEmbed.description = (
                 f"こたえ: {self.ansList[0]}"

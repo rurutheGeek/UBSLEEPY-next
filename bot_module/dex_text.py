@@ -34,8 +34,6 @@ ORDER BY t.ndex_number, t.form_id, t.title_id
 # 伏せ字。長さで答えが絞れないよう、名前の長さによらず4つ。
 # Discord が太字の記号として読まないよう、エスケープして出す。
 MASK = "\\*" * 4
-# 開示のときに並べる作品の数（同じ文がたくさんの作品にあるので、残りは「ほか」）
-TITLE_LIMIT = 3
 
 
 @dataclass(frozen=True, slots=True)
@@ -48,10 +46,8 @@ class DexText:
     question: str  # 答えの名前を伏せた文（クイズの投稿に出す）
 
     def titles_label(self) -> str:
-        label = "・".join(self.titles[:TITLE_LIMIT])
-        if len(self.titles) > TITLE_LIMIT:
-            label += " ほか"
-        return label
+        """この文が載っている作品（開示で全部並べる）。"""
+        return "・".join(self.titles)
 
 
 def name_pattern(names) -> re.Pattern | None:

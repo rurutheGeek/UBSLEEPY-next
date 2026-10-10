@@ -45,7 +45,7 @@ python debug_cli.py                  # 対話モード（q bq → answer / hint 
 ### コマンドの登録
 
 - スラッシュコマンドには `@discord.app_commands.command` の下に `@scoped`（`bot_module/command_scope.py`）を付ける。debug のときだけ開発用ギルドへ、通常はグローバルに登録される。
-- 通常起動ではグローバル登録に加えて、`GUILD_IDS` のサーバーへギルドコマンドのコピーを配る（再起動で即時反映させるため）。
+- 通常起動はグローバル登録だけ。ギルドコマンドのコピーは配らない（グローバルと両方が出て、同じコマンドが2つずつ並ぶ）。起動時に `GUILD_IDS` のサーバーに残っているコピーを消す。
 - コマンドを足したら `tests/test_cogs.py` の `EXPECTED_COMMANDS` と `cogs/help.py` の説明も更新する。Cog を足したら `main.py` と `tests/test_cogs.py` の `COGS` の両方へ。
 - `/bqdata`・`/crydata`・`/introdata` はスラッシュコマンドではなく、`cogs/quiz.py` の `on_message` が拾うテキストコマンド（`cogs/help.py` の `TEXT_COMMANDS` に説明がある）。
 
