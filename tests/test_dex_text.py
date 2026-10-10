@@ -21,10 +21,12 @@ ROWS = [
     ("9999", "00", "赤", "図鑑に 居ない ポケモン。"),
 ]
 
+EVOLUTIONS = [("0079", "0080"), ("0079", "0199")]
+
 
 @pytest.fixture
 def catalog():
-    made = dex_text.DexTextCatalog(ROWS, get_pokedex())
+    made = dex_text.DexTextCatalog(ROWS, get_pokedex(), EVOLUTIONS)
     dex_text.set_catalog(made)
     yield made
     dex_text.set_catalog(None)
@@ -165,3 +167,109 @@ def test_without_texts_the_quiz_is_not_posted(harness, monkeypatch, capsys):
     out = capsys.readouterr().out
     assert "読み込めて いないロ" in out
     assert "出題: 図鑑説明クイズ" not in out
+
+
+def test_the_forms_and_the_evolution_family_are_kept(catalog):
+    base, _blue, galar = catalog.by_species["80"]
+    assert base.forms == ("00",)
+    assert galar.forms == ("02",)
+    # ヤドン・ヤドラン・ヤドキングは、進化でつながるひとまとまり
+    assert catalog.related("80", "79") and catalog.related("80", "199")
+    assert not catalog.related("80", "25")
+
+
+def test_an_evolution_relative_is_close(harness, catalog, monkeypatch, capsys):
+    _only(monkeypatch, catalog, "80")
+    asyncio.run(harness.dispatch(["q", "dexq"]))
+    capsys.readouterr()
+    for name in ("ヤドン", "ヤドキング"):
+        asyncio.run(harness.dispatch(["answer", name]))
+        out = capsys.readouterr().out
+        assert "おしいロ！ 進化の前か後の ポケモンだロ" in out
+        assert "❓" in out
+        assert "誤答" not in out and "(done)" not in out  # 戦績に数えず、続けて答えられる
+
+
+def test_another_form_is_close(harness, catalog, monkeypatch, capsys):
+    _only(monkeypatch, catalog, "80")  # 基本の姿の説明
+    asyncio.run(harness.dispatch(["q", "dexq"]))
+    asyncio.run(harness.dispatch(["answer", "ガラルヤドラン"]))
+    out = capsys.readouterr().out
+    assert "おしいロ！ すがた（フォーム）が ちがうロ" in out
+    assert "誤答" not in out and "(done)" not in out
+
+
+def test_a_form_text_is_answered_by_the_form_name(
+        harness, catalog, monkeypatch, capsys):
+    _only(monkeypatch, catalog, "80", 2)  # ガラルのすがたの説明
+    asyncio.run(harness.dispatch(["q", "dexq"]))
+    asyncio.run(harness.dispatch(["answer", "ヤドラン"]))
+    assert "すがた（フォーム）が ちがうロ" in capsys.readouterr().out
+
+    asyncio.run(harness.dispatch(["answer", "ガラルヤドラン"]))
+    out = capsys.readouterr().out
+    assert "⭕" in out
+    assert "こたえ: ヤドラン(ガラルのすがた)" in out
+
+
+def _number_quiz(harness, monkeypatch, quiz_name):
+    import bot_module.quiz_session as session_module
+
+    monkeypatch.setattr(
+        session_module.random, "choice",
+        lambda candidates: next(p for p in candidates if p.species == "510"))
+    asyncio.run(harness.dispatch(["q", quiz_name]))
+
+
+def test_the_number_quiz_asks_the_pokemon(harness, monkeypatch, capsys):
+    _number_quiz(harness, monkeypatch, "ntopq")
+    out = capsys.readouterr().out
+    assert "No.510 -> [?]" in out
+    assert "レパルダス" not in out
+
+    asyncio.run(harness.dispatch(["answer", "チョロネコ"]))  # No.509
+    out = capsys.readouterr().out
+    assert "おしいロ！ 図鑑番号が 近い ポケモンだロ" in out
+    assert "誤答" not in out
+
+    asyncio.run(harness.dispatch(["answer", "ピカチュウ"]))
+    assert "ntopq誤答" in capsys.readouterr().out
+
+    asyncio.run(harness.dispatch(["answer", "レパルダス"]))
+    out = capsys.readouterr().out
+    assert "⭕" in out
+    assert "No.510 -> [レパルダス]" in out
+
+
+def test_the_number_quiz_asks_the_number(harness, monkeypatch, capsys):
+    _number_quiz(harness, monkeypatch, "ptonq")
+    assert "レパルダス -> [?]" in capsys.readouterr().out
+
+    asyncio.run(harness.dispatch(["answer", "ピカチュウ"]))
+    out = capsys.readouterr().out
+    assert "数字で 答えてね" in out and "誤答" not in out
+
+    for near in ("507", "No.513"):  # 前後3つまではおしい
+        asyncio.run(harness.dispatch(["answer", near]))
+        out = capsys.readouterr().out
+        assert "おしいロ！ 番号が 近いロ" in out and "誤答" not in out
+
+    asyncio.run(harness.dispatch(["answer", "506"]))
+    assert "ptonq誤答" in capsys.readouterr().out
+
+    asyncio.run(harness.dispatch(["hint"]))
+    assert "出身地はイッシュです" in capsys.readouterr().out
+
+    asyncio.run(harness.dispatch(["answer", "５１０番"]))
+    out = capsys.readouterr().out
+    assert "⭕" in out
+    assert "レパルダス -> [510]" in out
+
+
+def test_numbers_are_parsed():
+    from bot_module.quiz_session import parse_number
+
+    assert [parse_number(text) for text in ("510", "No.510", "no25", "００６番")] == [
+        510, 510, 25, 6]
+    assert parse_number("ピカチュウ") is None
+    assert parse_number("510ばん目くらい") is None

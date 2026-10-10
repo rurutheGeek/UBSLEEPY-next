@@ -21,7 +21,7 @@ from bot_module import intro
 from bot_module.pokedex import get_pokedex
 from bot_module.quiz_session import (
     CRY_DIRECTORY, CRY_MODE_LABELS, CRY_REPLAY_BUTTON_ID, QuizSession, QuizState,
-    cry_candidates, cry_from_message, play_cry)
+    cry_candidates, cry_from_message, parse_number, play_cry)
 from bot_module import save
 from bot_module.save import SaveError
 
@@ -451,25 +451,28 @@ class Quiz(commands.Cog):
         elif (message.guild is not None
               and message.channel.id == guild_settings.setting(
                   message.guild.id, 'QUIZ_CHANNEL_ID')):
-            await self._answer_in_channel(message, ("bq", "cryq", "introq", "dexq"))
+            await self._answer_in_channel(message, ("bq", "cryq", "introq", "dexq", "ntopq", "ptonq"))
 
         # ボイスチャンネル付属のテキストチャット（鳴き声クイズへの回答）
         elif (message.guild is not None
               and voice_channel_for(message.channel) is not None):
-            await self._answer_in_channel(message, ("cryq", "introq", "bq", "dexq"))
+            await self._answer_in_channel(message, ("cryq", "introq", "bq", "dexq", "ntopq", "ptonq"))
 
     async def _answer_in_channel(self, message, quiz_names):
         """チャンネルに書かれたポケモン名・曲名を、最新の未回答クイズへの回答にする。
 
         図鑑にも曲リストにも無い言葉（雑談など）は無視する（fetch_pokemon は
         見つからないと空のリストを返すので、真偽で判定する）。
-        イントロクイズへは曲名だけ、ほかのクイズへはポケモン名だけを回答にする。
+        イントロクイズへは曲名だけ、図鑑番号を当てるクイズへは数字だけ、
+        ほかのクイズへはポケモン名だけを回答にする。
         """
         is_pokemon = bool(ub.fetch_pokemon(message.content))
         is_track = "introq" in quiz_names and bool(intro.find_tracks(message.content))
+        is_number = parse_number(message.content) is not None
         quiz_names = [
             name for name in quiz_names
-            if (is_track if name == "introq" else is_pokemon)]
+            if (is_track if name == "introq"
+                else is_number if name == "ptonq" else is_pokemon)]
         if not quiz_names:
             return
         async for quizMessage in message.channel.history(limit=10):
