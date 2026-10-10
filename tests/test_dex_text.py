@@ -77,9 +77,9 @@ def test_the_answer_is_found_from_the_question(catalog):
     assert [entry.species for entry in catalog.find(UB_TEXT)] == ["794", "795"]
 
 
-def test_many_titles_are_shortened():
+def test_every_title_is_listed():
     entry = dex_text.DexText("80", "x", ("赤", "緑", "青", "ピカチュウ"), "x")
-    assert entry.titles_label() == "赤・緑・青 ほか"
+    assert entry.titles_label() == "赤・緑・青・ピカチュウ"
 
 
 def test_without_any_source_the_catalog_is_empty(monkeypatch, tmp_path):
@@ -132,7 +132,8 @@ def test_the_quiz_is_answered_by_the_name(harness, catalog, monkeypatch, capsys)
     out = capsys.readouterr().out
     assert "⭕" in out
     assert "ヤドランになった。" in out  # 開示ではもとの文を出す
-    assert "こたえ: ヤドラン（赤・緑）" in out
+    assert "こたえ: ヤドラン" in out
+    assert "作品: 赤・緑" in out  # 名前の下に、載っている作品を全部
     assert "dexq(done)" in out
 
 

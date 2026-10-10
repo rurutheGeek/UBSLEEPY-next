@@ -93,12 +93,13 @@ class UBSleepy(commands.Bot):
         # グローバル登録（全サーバー向け。反映に最大1時間かかることがある）
         await self.tree.sync()
 
-        # クラブのサーバーにはギルドコマンドのコピーも配り、即時反映させる
+        # 以前はクラブのサーバーへギルドコマンドのコピーも配っていたが、グローバルと
+        # 両方が出て同じコマンドが2つずつ並ぶ。残っているコピーを消す
         for guild_id in GUILD_IDS:
             guild = self.get_guild(guild_id)
             if guild is None:
                 continue
-            self.tree.copy_global_to(guild=guild)
+            self.tree.clear_commands(guild=guild)
             await self.tree.sync(guild=guild)
 
         synced = [f"\n#{i} {guild.name}" for i, guild in enumerate(self.guilds)]
