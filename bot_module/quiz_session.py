@@ -12,6 +12,7 @@ from pathlib import Path
 import random
 import re
 import secrets
+import unicodedata
 
 import discord
 import jaconv
@@ -29,6 +30,34 @@ LOG_GIVEUP = "ギブアップ"
 LOG_HINT = "ヒント"
 # 判定ログに残す入力の原文の長さ（クイズへの返信なら何でも届くので、長文は切る）
 LOG_RAW_LENGTH = 200
+
+
+# 図鑑番号クイズ: 正解からこの数まで離れた番号（のポケモン）は「おしい」
+NUMBER_NEAR = 3
+NUMBER_RE = re.compile(r"^(?:no\.?|№)?\s*(\d{1,4})\s*番?$", re.IGNORECASE)
+
+
+def parse_number(text) -> int | None:
+    """「510」「No.510」「５１０番」のような回答を図鑑番号に。数字でなければ None。"""
+    match = NUMBER_RE.match(unicodedata.normalize("NFKC", str(text or "")).strip())
+    return int(match.group(1)) if match else None
+
+
+def dex_answers(entries) -> dict:
+    """図鑑説明クイズの正解。(種族, フォーム) -> (Pokemon, 開示で見せる名前)。
+
+    説明文の載っているフォームが正解。基本の姿が入っている種族は、種族名で見せる。
+    """
+    pokedex = get_pokedex()
+    answers = {}
+    for entry in entries:
+        base = pokedex.base(entry.species)
+        records = [record for record in pokedex.variants(entry.species)
+                   if record.form_id in entry.forms] or [base]
+        for record in records:
+            shown = base.name if "00" in entry.forms else record.name
+            answers[(record.species, record.form_id)] = (record, shown)
+    return answers
 
 
 def pokemon_id(pokemon) -> str:
@@ -293,12 +322,27 @@ class QuizSession:
             if entry is None:
                 await sendChannel.send("図鑑説明を 読み込めて いないロ")
                 return
-            # 伏せ字にした文が同じになる種族は、みな正解。記録は判定と同じ先頭の種族で残す
-            qDatas = get_pokedex().base(catalog.find(entry.question)[0].species)
+            # 伏せ字にした文が同じになる種族は、みな正解。記録は判定と同じ先頭の正解で残す
+            qDatas = next(iter(
+                dex_answers(catalog.find(entry.question)).values()))[0]
             quizEmbed.title = "図鑑説明クイズ"
             # 答えは問題文から引き直すので、説明のほかは書かない
             quizEmbed.description = entry.question
             quizEmbed.set_thumbnail(url=self.__imageLink())  # 正解までDecamark
+
+        elif self.quizName in ("ntopq", "ptonq"):
+            candidates = [p for p in get_pokedex().records if p.form_id == "00"]
+            if not candidates:
+                await sendChannel.send("現在の出題条件に合うポケモンがいません")
+                return
+            qDatas = random.choice(candidates)
+            quizEmbed.title = "図鑑番号クイズ"
+            if self.quizName == "ntopq":
+                quizEmbed.description = f"No.{qDatas.species} -> [?]"
+                quizEmbed.set_thumbnail(url=self.__imageLink())  # 正解までDecamark
+            else:
+                quizEmbed.description = f"{qDatas.name} -> [?]"
+                quizEmbed.set_thumbnail(url=self.__imageLink(qDatas.name))
 
         elif self.quizName == "introq":
             track = intro.random_track(
@@ -366,7 +410,7 @@ class QuizSession:
             answer, answer_id = pokemon.name, pokemon_id(pokemon)
             if self.quizName == "bq":
                 question = quizContent.split(" ")[0]
-            elif self.quizName in ("etojq", "jtoeq", "ctojq"):
+            elif self.quizName in ("etojq", "jtoeq", "ctojq", "ntopq", "ptonq"):
                 question = re.findall(r"^(.+)\s->", quizEmbed.description)[0]
             else:
                 question = pokemon.name
@@ -425,7 +469,7 @@ class QuizSession:
         hints = []
 
         # クイズごとにヒント項目を作成する
-        if self.quizName in ["bq", "ctojq", "cryq", "dexq"]:
+        if self.quizName in ["bq", "ctojq", "cryq", "dexq", "ntopq"]:
             hints = [
                 "ヒント",
                 "タイプ",
@@ -455,6 +499,8 @@ class QuizSession:
             ]
         elif self.quizName == "jtoeq":
             hints = ["文字数", "モジスウ", "頭文字", "カシラモジ", "イニシャル"]
+        elif self.quizName == "ptonq":
+            hints = ["ヒント", "地方", "チホウ", "作品", "サクヒン"]
         elif self.quizName == "introq":
             hints = ["ヒント", "作品", "サクヒン"]
 
@@ -463,7 +509,7 @@ class QuizSession:
             self.examText = self.qm.content.split(" ")[0]
         elif self.quizName == "acq":
             self.examText = self.quizEmbed.description.split(" ")[0]
-        elif self.quizName in ["etojq", "jtoeq", "ctojq"]:
+        elif self.quizName in ["etojq", "jtoeq", "ctojq", "ntopq", "ptonq"]:
             self.examText = re.findall(r"^(.+)\s->", self.quizEmbed.description)[0]
         elif self.quizName == "cryq":
             entry = cry_from_message(self.qm)
@@ -479,7 +525,9 @@ class QuizSession:
                 await self.rm.reply(
                     "この問題の答えが分からなくなりました。もう一度 /q で出題してください")
                 return
-            self.examText = get_pokedex().base(self.dexEntries[0].species).name
+            self.dexCatalog = catalog
+            self.dexAnswers = dex_answers(self.dexEntries)
+            self.examText = next(iter(self.dexAnswers.values()))[1]
         elif self.quizName == "introq":
             self.track = intro.track_from_message(self.qm)
             if self.track is None:
@@ -517,17 +565,29 @@ class QuizSession:
 
         fixAns = self.ansText
         repPokeData = None
-        if self.quizName in ["bq", "etojq", "ctojq", "cryq", "dexq"]:
+        nearReply = None  # 「おしい」の返事（戦績には数えない）
+        notNumber = False
+        if self.quizName in ["bq", "etojq", "ctojq", "cryq", "dexq", "ntopq"]:
             if found := ub.fetch_pokemon(self.ansText):
                 repPokeData = found[0]
                 fixAns = repPokeData.name
                 if self.quizName == "dexq":
-                    # 当てるのは種族。フォームの名前で答えても、その種族なら正解
-                    species = [entry.species for entry in self.dexEntries]
-                    for pokemon in found:
-                        if pokemon.species in species:
-                            fixAns = self.ansList[species.index(pokemon.species)]
-                            break
+                    fixAns, nearReply = self.__judge_dex(found)
+                elif self.quizName == "ntopq":
+                    # 当てるのは種族。フォームの名前で答えても正解
+                    gap = abs(int(repPokeData.species) - int(self.ansZero.species))
+                    if gap == 0:
+                        fixAns = self.ansList[0]
+                    elif gap <= NUMBER_NEAR:
+                        nearReply = "おしいロ！ 図鑑番号が 近い ポケモンだロ"
+        elif self.quizName == "ptonq":
+            number = parse_number(self.rawText)
+            if number is None:
+                notNumber = True
+            else:
+                fixAns = str(number)
+                if 0 < abs(number - int(self.ansList[0])) <= NUMBER_NEAR:
+                    nearReply = "おしいロ！ 番号が 近いロ"
         elif self.quizName == "jtoeq":
             fixAns = jaconv.z2h(
                 jaconv.kata2alphabet(fixAns), kana=False, ascii=False, digit=True
@@ -560,13 +620,23 @@ class QuizSession:
                 await self.__disclose(False)
 
         if (
-            self.quizName in ["bq", "etojq", "ctojq", "cryq", "dexq"]
+            self.quizName in ["bq", "etojq", "ctojq", "cryq", "dexq", "ntopq"]
             and repPokeData is None
         ):  # 例外処理
             judge = None
             if isinstance(self.rm, discord.Message):
                 reaction = "❓"
                 await self.rm.reply(f"{self.ansText} は図鑑に登録されていません")
+        elif notNumber:
+            judge = None
+            if isinstance(self.rm, discord.Message):
+                reaction = "❓"
+                await self.rm.reply("図鑑番号を 数字で 答えてね（例: `510`）")
+        elif judge == "誤答" and nearReply:
+            judge = None  # 戦績には数えない
+            if isinstance(self.rm, discord.Message):
+                reaction = "❓"
+                await self.rm.reply(nearReply)
         elif self.quizName == "introq" and introVerdict in (
                 intro.AMBIGUOUS, intro.AMBIGUOUS_SONG, intro.PARTIAL, intro.UNKNOWN):
             judge = None  # 戦績には数えない
@@ -628,8 +698,28 @@ class QuizSession:
 
         await asyncio.to_thread(
             self.__log, judge, self.ansList[0], None,
-            introVerdict if self.quizName == "introq" else None,
+            introVerdict if self.quizName == "introq"
+            else ("おしい" if judge is None and nearReply else None),
             pokemon_id(repPokeData) if repPokeData is not None else None)
+
+    def __judge_dex(self, found):
+        """図鑑説明クイズの判定。(正解ならその名前・ちがえば答えた名前, おしいの返事)。
+
+        種族名で答えたら基本の姿、フォームの名前ならそのフォームを答えたものとする。
+        同じ種族の別のフォーム・進化の前後は「おしい」。
+        """
+        intended = [p for p in found if p.form_id == "00"] or found
+        for pokemon in intended:
+            if (pokemon.species, pokemon.form_id) in self.dexAnswers:
+                return self.dexAnswers[(pokemon.species, pokemon.form_id)][1], None
+        answered = {pokemon.species for pokemon in intended}
+        species = {key[0] for key in self.dexAnswers}
+        if answered & species:
+            return intended[0].name, "おしいロ！ すがた（フォーム）が ちがうロ"
+        if any(self.dexCatalog.related(one, other)
+               for one in species for other in answered):
+            return intended[0].name, "おしいロ！ 進化の前か後の ポケモンだロ"
+        return intended[0].name, None
 
     async def __hint(self):
         ub.output_log(f"{self.quizName}: ヒント表示を実行")
@@ -637,7 +727,7 @@ class QuizSession:
         pokemon = self.ansZero
         hintIndex = None
 
-        if self.quizName in ["bq", "etojq", "ctojq", "cryq", "dexq"]:
+        if self.quizName in ["bq", "etojq", "ctojq", "cryq", "dexq", "ntopq"]:
             if (
                 self.ansText == "ヒント"
             ):  # まだ出ていないヒントからランダムにヒントを出す
@@ -721,6 +811,16 @@ class QuizSession:
                 hintIndex = "文字数"
             elif self.ansText in ["頭文字", "カシラモジ", "イニシャル"]:
                 hintIndex = "イニシャル"
+
+        elif self.quizName == "ptonq":
+            # 番号の見当がつくもの（地方・初登場作品）だけ出す
+            if self.ansText in ["作品", "サクヒン"]:
+                hintIndex = "初登場作品"
+            elif self.ansText in ["地方", "チホウ"] or not any(
+                    field.name == "出身地" for field in self.quizEmbed.fields):
+                hintIndex = "出身地"
+            else:
+                hintIndex = "初登場作品"
 
         elif self.quizName == "introq":
             hintIndex = "作品"  # ヒントは作品だけ
@@ -838,7 +938,7 @@ class QuizSession:
                     f"{self.examText}は{self.ansList[0]}の方が高い"
                 )
 
-        elif self.quizName in ["etojq", "jtoeq", "ctojq"]:
+        elif self.quizName in ["etojq", "jtoeq", "ctojq", "ntopq", "ptonq"]:
             self.quizEmbed.description = f"{self.examText} -> [{self.ansList[0]}]"
             if self.quizName == "etojq":
                 if self.ansZero.etymology:
@@ -919,9 +1019,17 @@ class QuizSession:
             answers.append(aData.name)
 
         elif self.quizName == "dexq":
-            aDatas = [pokedex.base(entry.species) for entry in self.dexEntries]
-            aData = aDatas[0]
-            answers = [p.name for p in aDatas]
+            aData = next(iter(self.dexAnswers.values()))[0]
+            answers = list(dict.fromkeys(
+                shown for _record, shown in self.dexAnswers.values()))
+
+        elif self.quizName == "ntopq":
+            aData = pokedex.base(self.examText.removeprefix("No."))
+            answers.append(aData.name)
+
+        elif self.quizName == "ptonq":
+            aData = ub.fetch_pokemon(self.examText)[0]
+            answers.append(aData.species)
 
         elif self.quizName == "introq":
             aData = self.track
@@ -961,7 +1069,8 @@ class QuizSession:
         link = f"{cfg.EX_SOURCE_LINK}Decamark.png"  # デフォルトは(?)マーク
         if searchWord is not None:
             if self.quizName in [
-                    "bq", "acq", "etojq", "jtoeq", "ctojq", "cryq", "dexq"]:
+                    "bq", "acq", "etojq", "jtoeq", "ctojq", "cryq", "dexq",
+                    "ntopq", "ptonq"]:
                 displayImage = ub.fetch_pokemon(searchWord)
                 if displayImage:  # 回答ポケモンが発見できた場合
                     link = f"{cfg.EX_SOURCE_LINK}art/{displayImage[0].image_number}.png"
@@ -979,8 +1088,7 @@ class QuizSession:
                 if p.stats == self.ansZero.stats)
         if self.quizName == "dexq":
             return "|".join(
-                pokemon_id(get_pokedex().base(entry.species))
-                for entry in self.dexEntries)
+                pokemon_id(record) for record, _shown in self.dexAnswers.values())
         return pokemon_id(self.ansZero)
 
     def __log(self, judge, exAns, recognized=None, detail=None, input_id=None):
