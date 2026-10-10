@@ -481,7 +481,7 @@ class QuizSession:
         hints = []
 
         # クイズごとにヒント項目を作成する
-        if self.variant in ["bq", "ctojq", "cryq", "dexq", "ntopq"]:
+        if self.variant in ["bq", "ctojq", "cryq", "ntopq"]:
             hints = [
                 "ヒント",
                 "タイプ",
@@ -513,6 +513,9 @@ class QuizSession:
             hints = ["文字数", "モジスウ", "頭文字", "カシラモジ", "イニシャル"]
         elif self.variant == "ptonq":
             hints = ["ヒント", "地方", "チホウ", "作品", "サクヒン"]
+        elif self.quizName == "dexq":
+            # タイプや特性まで出すと説明文を読まなくても当たるので、地方だけ
+            hints = ["ヒント", "地方", "チホウ"]
         elif self.quizName == "introq":
             hints = ["ヒント", "作品", "サクヒン"]
 
@@ -739,7 +742,10 @@ class QuizSession:
         pokemon = self.ansZero
         hintIndex = None
 
-        if self.variant in ["bq", "etojq", "ctojq", "cryq", "dexq", "ntopq"]:
+        if self.quizName == "dexq":
+            hintIndex = "出身地"  # ヒントは地方だけ
+
+        elif self.variant in ["bq", "etojq", "ctojq", "cryq", "ntopq"]:
             if (
                 self.ansText == "ヒント"
             ):  # まだ出ていないヒントからランダムにヒントを出す

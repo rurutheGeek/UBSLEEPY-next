@@ -152,10 +152,17 @@ def test_any_pokemon_with_the_same_text_is_correct(
 def test_hint_and_give_work(harness, catalog, monkeypatch, capsys):
     _only(monkeypatch, catalog, "80")
     asyncio.run(harness.dispatch(["q", "dexq"]))
-    asyncio.run(harness.dispatch(["hint", "タイプ"]))
+    asyncio.run(harness.dispatch(["hint"]))
+    asyncio.run(harness.dispatch(["hint", "地方"]))
+    out = capsys.readouterr().out
+    assert out.count("出身地はカントーです") == 2  # ヒントは地方だけ
+
+    # タイプなどはヒントにせず、ふつうの回答として扱う（図鑑に無い言葉）
+    asyncio.run(harness.dispatch(["answer", "タイプ"]))
+    assert "タイプ1は" not in capsys.readouterr().out
+
     asyncio.run(harness.dispatch(["give"]))
     out = capsys.readouterr().out
-    assert "タイプ1はみずです" in out
     assert "答えはヤドランでした" in out
 
 
