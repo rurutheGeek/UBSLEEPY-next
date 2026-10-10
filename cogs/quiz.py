@@ -16,6 +16,7 @@ from bot_module.logging_setup import logger
 from bot_module.command_scope import scoped
 import bot_module.func as ub
 import bot_module.guild_settings as guild_settings
+from bot_module import dex_text
 from bot_module import intro
 from bot_module.pokedex import get_pokedex
 from bot_module.quiz_session import (
@@ -213,6 +214,8 @@ class Quiz(commands.Cog):
     async def on_ready(self):
         # 起動時と再接続時に図鑑カタログを用意する（pkdbが無ければCSV）
         get_pokedex()
+        # 図鑑説明クイズの説明文も先に読んでおく（最初の出題を待たせない）
+        await asyncio.to_thread(dex_text.get_catalog)
 
     @discord.app_commands.command(
         name="q", description="現在の出題設定に基づいてクイズを出題します")
@@ -448,12 +451,12 @@ class Quiz(commands.Cog):
         elif (message.guild is not None
               and message.channel.id == guild_settings.setting(
                   message.guild.id, 'QUIZ_CHANNEL_ID')):
-            await self._answer_in_channel(message, ("bq", "cryq", "introq"))
+            await self._answer_in_channel(message, ("bq", "cryq", "introq", "dexq"))
 
         # ボイスチャンネル付属のテキストチャット（鳴き声クイズへの回答）
         elif (message.guild is not None
               and voice_channel_for(message.channel) is not None):
-            await self._answer_in_channel(message, ("cryq", "introq", "bq"))
+            await self._answer_in_channel(message, ("cryq", "introq", "bq", "dexq"))
 
     async def _answer_in_channel(self, message, quiz_names):
         """チャンネルに書かれたポケモン名・曲名を、最新の未回答クイズへの回答にする。

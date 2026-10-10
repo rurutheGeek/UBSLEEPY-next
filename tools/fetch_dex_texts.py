@@ -1,0 +1,46 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""図鑑説明クイズ用の説明文を pkdb から resource/pokedex_text.csv へ書き出す。
+
+Botは PKDB_PASSWORD があれば pkdb を直接読むので、これが要るのは
+pkdb へつながない手元（debug_cli.py など）で図鑑説明クイズを試すときだけ。
+書き出したCSVは Git に入れない。
+
+    python tools/fetch_dex_texts.py
+
+pkdbへは apps-01 のコンテナの psql を pkdb_reader で使う（SSH鍵が要る）。
+別のつなぎ方をするときは、psql のコマンドを DEX_TEXT_PSQL に入れる。
+"""
+import os
+from pathlib import Path
+import shlex
+import subprocess
+import sys
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from bot_module import dex_text  # noqa: E402
+
+DEFAULT_PSQL = ("ssh -i ~/.ssh/id_ed25519_pve debian@192.168.10.105 "
+                "sudo docker exec -i pkdb-db-1 psql -U pkdb_reader -d sleepy_pkdb")
+COPY_SQL = (
+    "COPY (SELECT t.ndex_number, t.form_id, s.title_name AS title, t.text "
+    "FROM pokemon_pokedex_text t JOIN title_solo s ON s.title_id = t.title_id "
+    "ORDER BY t.ndex_number, t.form_id, t.title_id) TO STDOUT WITH CSV HEADER")
+
+
+def main() -> int:
+    command = shlex.split(os.environ.get("DEX_TEXT_PSQL", DEFAULT_PSQL))
+    command += ["-v", "ON_ERROR_STOP=1", "-q"]
+    done = subprocess.run(command, input=COPY_SQL, text=True, capture_output=True)
+    if done.returncode:
+        print(f"pkdbで失敗しました:\n{done.stderr.strip()}", file=sys.stderr)
+        return 1
+    path = Path(__file__).resolve().parents[1] / dex_text.DEX_TEXT_PATH
+    path.write_text(done.stdout, encoding="utf-8")
+    print(f"{path}: {len(done.stdout.splitlines()) - 1}件")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

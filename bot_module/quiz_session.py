@@ -17,6 +17,7 @@ import discord
 import jaconv
 
 import bot_module.config as cfg
+from bot_module import dex_text
 from bot_module import func as ub
 from bot_module import intro
 from bot_module.pokedex import get_pokedex
@@ -286,6 +287,19 @@ class QuizSession:
             quizFile = discord.File(
                 str(voicePath), filename=cry_filename(qDatas.name, cryKind, cryNonce))
 
+        elif self.quizName == "dexq":
+            catalog = await asyncio.to_thread(dex_text.get_catalog)
+            entry = catalog.random()
+            if entry is None:
+                await sendChannel.send("図鑑説明を 読み込めて いないロ")
+                return
+            # 伏せ字にした文が同じになる種族は、みな正解。記録は判定と同じ先頭の種族で残す
+            qDatas = get_pokedex().base(catalog.find(entry.question)[0].species)
+            quizEmbed.title = "図鑑説明クイズ"
+            # 答えは問題文から引き直すので、説明のほかは書かない
+            quizEmbed.description = entry.question
+            quizEmbed.set_thumbnail(url=self.__imageLink())  # 正解までDecamark
+
         elif self.quizName == "introq":
             track = intro.random_track(
                 self.state.intro_works, self.state.intro_categories,
@@ -411,7 +425,7 @@ class QuizSession:
         hints = []
 
         # クイズごとにヒント項目を作成する
-        if self.quizName in ["bq", "ctojq", "cryq"]:
+        if self.quizName in ["bq", "ctojq", "cryq", "dexq"]:
             hints = [
                 "ヒント",
                 "タイプ",
@@ -458,6 +472,14 @@ class QuizSession:
                     "この問題の答えが分からなくなりました。もう一度 /q で出題してください")
                 return
             self.examText = entry[0]
+        elif self.quizName == "dexq":
+            catalog = await asyncio.to_thread(dex_text.get_catalog)
+            self.dexEntries = catalog.find(self.quizEmbed.description)
+            if not self.dexEntries:
+                await self.rm.reply(
+                    "この問題の答えが分からなくなりました。もう一度 /q で出題してください")
+                return
+            self.examText = get_pokedex().base(self.dexEntries[0].species).name
         elif self.quizName == "introq":
             self.track = intro.track_from_message(self.qm)
             if self.track is None:
@@ -495,10 +517,17 @@ class QuizSession:
 
         fixAns = self.ansText
         repPokeData = None
-        if self.quizName in ["bq", "etojq", "ctojq", "cryq"]:
+        if self.quizName in ["bq", "etojq", "ctojq", "cryq", "dexq"]:
             if found := ub.fetch_pokemon(self.ansText):
                 repPokeData = found[0]
                 fixAns = repPokeData.name
+                if self.quizName == "dexq":
+                    # 当てるのは種族。フォームの名前で答えても、その種族なら正解
+                    species = [entry.species for entry in self.dexEntries]
+                    for pokemon in found:
+                        if pokemon.species in species:
+                            fixAns = self.ansList[species.index(pokemon.species)]
+                            break
         elif self.quizName == "jtoeq":
             fixAns = jaconv.z2h(
                 jaconv.kata2alphabet(fixAns), kana=False, ascii=False, digit=True
@@ -531,7 +560,8 @@ class QuizSession:
                 await self.__disclose(False)
 
         if (
-            self.quizName in ["bq", "etojq", "ctojq", "cryq"] and repPokeData is None
+            self.quizName in ["bq", "etojq", "ctojq", "cryq", "dexq"]
+            and repPokeData is None
         ):  # 例外処理
             judge = None
             if isinstance(self.rm, discord.Message):
@@ -607,7 +637,7 @@ class QuizSession:
         pokemon = self.ansZero
         hintIndex = None
 
-        if self.quizName in ["bq", "etojq", "ctojq", "cryq"]:
+        if self.quizName in ["bq", "etojq", "ctojq", "cryq", "dexq"]:
             if (
                 self.ansText == "ヒント"
             ):  # まだ出ていないヒントからランダムにヒントを出す
@@ -785,6 +815,11 @@ class QuizSession:
             self.quizEmbed.description = (
                 f"こたえ: {self.ansList[0]}"
                 + (f"（{label}のなきごえ）" if label else ''))
+        elif self.quizName == "dexq":
+            entry = self.dexEntries[0]
+            self.quizEmbed.description = (
+                f'{entry.text}\nこたえ: {",".join(self.ansList)}'
+                f"（{entry.titles_label()}）")
         elif self.quizName == "introq":
             self.quizEmbed.description = (
                 f"こたえ: {self.ansList[0]}"
@@ -883,6 +918,11 @@ class QuizSession:
             aData = ub.fetch_pokemon(self.examText)[0]
             answers.append(aData.name)
 
+        elif self.quizName == "dexq":
+            aDatas = [pokedex.base(entry.species) for entry in self.dexEntries]
+            aData = aDatas[0]
+            answers = [p.name for p in aDatas]
+
         elif self.quizName == "introq":
             aData = self.track
             answers.append(aData.title)
@@ -920,7 +960,8 @@ class QuizSession:
         ub.output_log(f"{self.quizName}: 画像リンク生成を実行")
         link = f"{cfg.EX_SOURCE_LINK}Decamark.png"  # デフォルトは(?)マーク
         if searchWord is not None:
-            if self.quizName in ["bq", "acq", "etojq", "jtoeq", "ctojq", "cryq"]:
+            if self.quizName in [
+                    "bq", "acq", "etojq", "jtoeq", "ctojq", "cryq", "dexq"]:
                 displayImage = ub.fetch_pokemon(searchWord)
                 if displayImage:  # 回答ポケモンが発見できた場合
                     link = f"{cfg.EX_SOURCE_LINK}art/{displayImage[0].image_number}.png"
@@ -929,13 +970,17 @@ class QuizSession:
         return link
 
     def __answer_id(self) -> str:
-        """正解のID。種族値クイズは同じ種族値のポケモンがみな正解なので、全部並べる。"""
+        """正解のID。種族値クイズ・図鑑説明クイズは正解がいくつもあれば、全部並べる。"""
         if self.quizName == "introq":
             return self.ansZero.id
         if self.quizName == "bq":
             return "|".join(
                 pokemon_id(p) for p in get_pokedex().records
                 if p.stats == self.ansZero.stats)
+        if self.quizName == "dexq":
+            return "|".join(
+                pokemon_id(get_pokedex().base(entry.species))
+                for entry in self.dexEntries)
         return pokemon_id(self.ansZero)
 
     def __log(self, judge, exAns, recognized=None, detail=None, input_id=None):
