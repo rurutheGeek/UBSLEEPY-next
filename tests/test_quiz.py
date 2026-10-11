@@ -1165,3 +1165,122 @@ def test_bq_log_lists_every_pokemon_with_the_same_stats(monkeypatch):
     q.ansZero = first
 
     assert q._QuizSession__answer_id() == '0006-00|9999-00'
+
+
+class CountingChannel(FakeChannel):
+    """履歴・投稿の読み込み回数を数えるチャンネル。"""
+
+    def __init__(self, messages, **kwargs):
+        super().__init__(history=messages, **kwargs)
+        self.messages = {message.id: message for message in messages}
+        self.history_calls = []
+        self.fetched = []
+
+    def history(self, limit=10):
+        self.history_calls.append(limit)
+        return super().history(limit)
+
+    async def fetch_message(self, message_id):
+        self.fetched.append(message_id)
+        if message_id not in self.messages:
+            raise discord.NotFound(
+                type("R", (), {"status": 404, "reason": "Not Found"})(), "unknown")
+        return self.messages[message_id]
+
+
+def _quiz_post(bot, message_id, footer="No.26 ポケモンクイズ - bq"):
+    embed = discord.Embed()
+    embed.set_footer(text=footer)
+    post = FakeMessage(author=bot.user, embeds=[embed],
+                       channel=FakeChannel(channel_id=QUIZ_CHANNEL_ID))
+    post.id = message_id
+    return post
+
+
+def _answering_cog(monkeypatch, bot):
+    """回答が届いたクイズ（種別, 投稿ID）を記録するCog。"""
+    answered = []
+
+    class FakeQuiz:
+        def __init__(self, bot, quiz_name, state=None):
+            self.name = quiz_name
+
+        async def try_response(self, response):
+            answered.append((self.name, response.reference.resolved.id))
+
+    monkeypatch.setattr(quiz_module, "QuizSession", FakeQuiz)
+    return quiz_module.Quiz(bot), answered
+
+
+def test_a_buried_quiz_is_still_answered(monkeypatch):
+    # 誤答とBotの返事でクイズが流れても、出題中のクイズへ回答が入る
+    bot = FakeBot()
+    cog, answered = _answering_cog(monkeypatch, bot)
+    chatter = [FakeMessage(author=FakeUser(), content="ちがう") for _ in range(40)]
+    post = _quiz_post(bot, 500)
+    channel = CountingChannel([*chatter, post], channel_id=QUIZ_CHANNEL_ID)
+
+    asyncio.run(cog.on_message(_pokemon_name_message(channel, monkeypatch)))
+    asyncio.run(cog.on_message(_pokemon_name_message(channel, monkeypatch)))
+
+    assert answered == [("bq", 500), ("bq", 500)]
+    # 履歴を読むのはチャンネルごとに最初の1回だけ。2回目は覚えている投稿を1件取り直す
+    assert channel.history_calls == [quiz_module.OPEN_QUIZ_SCAN]
+    assert channel.fetched == [500]
+
+
+def test_a_channel_without_a_quiz_is_scanned_only_once(monkeypatch):
+    bot = FakeBot()
+    cog, answered = _answering_cog(monkeypatch, bot)
+    channel = CountingChannel([], channel_id=QUIZ_CHANNEL_ID)
+
+    for _ in range(3):
+        asyncio.run(cog.on_message(_pokemon_name_message(channel, monkeypatch)))
+
+    assert answered == []
+    assert channel.history_calls == [quiz_module.OPEN_QUIZ_SCAN]
+    assert channel.fetched == []
+
+
+def test_the_newest_open_quiz_gets_the_answer(monkeypatch):
+    bot = FakeBot()
+    cog, answered = _answering_cog(monkeypatch, bot)
+    old, new = _quiz_post(bot, 500), _quiz_post(bot, 600)
+    channel = CountingChannel([new, old], channel_id=QUIZ_CHANNEL_ID)  # 新しい順
+
+    asyncio.run(cog.on_message(_pokemon_name_message(channel, monkeypatch)))
+    assert answered == [("bq", 600)]
+
+    # 新しいほうの開示が済んだら、残っている古いクイズへ入る
+    new.embeds[0].set_footer(text="No.26 ポケモンクイズ - bq(done)")
+    asyncio.run(cog.on_message(_pokemon_name_message(channel, monkeypatch)))
+    assert answered[-1] == ("bq", 500)
+    assert cog.state.open_quizzes[QUIZ_CHANNEL_ID] == [(500, "bq")]
+
+
+def test_a_deleted_quiz_is_forgotten(monkeypatch):
+    bot = FakeBot()
+    cog, answered = _answering_cog(monkeypatch, bot)
+    channel = CountingChannel([], channel_id=QUIZ_CHANNEL_ID)
+    cog.state.open_quizzes[QUIZ_CHANNEL_ID] = [(700, "bq")]  # 覚えているが、もう無い
+
+    asyncio.run(cog.on_message(_pokemon_name_message(channel, monkeypatch)))
+
+    assert answered == []
+    assert cog.state.open_quizzes[QUIZ_CHANNEL_ID] == []
+
+
+def test_posting_and_revealing_keep_the_open_quizzes():
+    state = quiz_module.QuizState()
+    state.remember_quiz(1, 10, "bq")
+    assert state.open_quizzes == {}  # まだ調べていないチャンネルは、履歴から作るまで待つ
+
+    state.open_quizzes[1] = []
+    for message_id in range(session_module.OPEN_QUIZ_LIMIT + 5):
+        state.remember_quiz(1, message_id, "bq")
+    quizzes = state.open_quizzes[1]
+    assert len(quizzes) == session_module.OPEN_QUIZ_LIMIT
+    assert quizzes[0] == (session_module.OPEN_QUIZ_LIMIT + 4, "bq")  # 新しい順
+
+    state.forget_quiz(1, quizzes[0][0])
+    assert quizzes[0] == (session_module.OPEN_QUIZ_LIMIT + 3, "bq")
