@@ -20,13 +20,19 @@ from bot_module import dex_text
 from bot_module import intro
 from bot_module.pokedex import get_pokedex
 from bot_module.quiz_session import (
-    CRY_DIRECTORY, CRY_MODE_LABELS, CRY_REPLAY_BUTTON_ID, QuizSession, QuizState,
+    CRY_DIRECTORY, CRY_MODE_LABELS, CRY_REPLAY_BUTTON_ID, OPEN_QUIZ_LIMIT,
+    QuizSession, QuizState,
     cry_candidates, cry_from_message, parse_number, play_cry)
 from bot_module import save
 from bot_module.save import SaveError
 
 # /q の mode: 図鑑番号クイズの出し方（True は番号からポケモンを当てる）
 NUMBER_MODES = {"ポケモン→番号": False, "番号→ポケモン": True}
+
+# クイズの投稿のフッター（このあとに種別が続く）
+QUIZ_FOOTER = "No.26 ポケモンクイズ"
+# 出題中のクイズを履歴から探すときに遡る件数（チャンネルごとに最初の1回だけ読む）
+OPEN_QUIZ_SCAN = 100
 
 # /quizrecord で並べる苦手な問題の数（記録が少なければ、あるだけ）
 WEAK_LIMIT = 10
@@ -486,38 +492,71 @@ class Quiz(commands.Cog):
                 else (is_number or is_pokemon) if name == "noq" else is_pokemon)]
         if not quiz_names:
             return
-        async for quizMessage in message.channel.history(limit=10):
-            # ほかのBot（テスト用など）が出したクイズには反応しない
-            if quizMessage.author != self.bot.user:
+        channel = message.channel
+        quizzes = self.state.open_quizzes.get(channel.id)
+        fetched = {}  # 履歴から読んだばかりの投稿（読み直さない）
+        if quizzes is None:
+            # 再起動のあとなど、このチャンネルをまだ調べていない。履歴から一度だけ作る
+            fetched = await self._scan_open_quizzes(channel)
+            quizzes = self.state.open_quizzes[channel.id]
+        for message_id, name in list(quizzes):
+            if name not in quiz_names:
                 continue
-            if not quizMessage.embeds:
-                continue
-            footer = quizMessage.embeds[0].footer.text or ""
-            if "(done)" in footer:
-                continue
-            for name in quiz_names:
-                if f"No.26 ポケモンクイズ - {name}" not in footer:
+            quizMessage = fetched.get(message_id)
+            if quizMessage is None:
+                try:
+                    # ヒントや開示で書き換わるので、いまの投稿を1件だけ取り直す
+                    quizMessage = await channel.fetch_message(message_id)
+                except discord.NotFound:
+                    self.state.forget_quiz(channel.id, message_id)  # 消された
                     continue
-                if name == "noq":
-                    # 番号から出した問題は名前、ポケモンから出した問題は数字だけ拾う
-                    from_number = (
-                        quizMessage.embeds[0].description or "").startswith("No.")
-                    if not (is_pokemon if from_number else is_number):
-                        continue
-                # メッセージをリプライに偽装する
-                message.reference = discord.MessageReference(
-                    message_id=quizMessage.id,
-                    channel_id=quizMessage.channel.id,
-                    guild_id=quizMessage.guild.id,
-                )
-                message.reference.resolved = quizMessage
-                session = QuizSession(self.bot, name, self.state)
-                # 回答後も同じVCで鳴き声を流せるように、回答元のVCを引き継ぐ
-                session.voice_channel = voice_channel_for(message.channel)
-                await session.try_response(message)
-                return
+                except discord.HTTPException:
+                    continue
+            footer = (quizMessage.embeds[0].footer.text or ""
+                      ) if quizMessage.embeds else ""
+            if QUIZ_FOOTER not in footer or "(done)" in footer:
+                self.state.forget_quiz(channel.id, message_id)
+                continue
+            if name == "noq":
+                # 番号から出した問題は名前、ポケモンから出した問題は数字だけ拾う
+                from_number = (
+                    quizMessage.embeds[0].description or "").startswith("No.")
+                if not (is_pokemon if from_number else is_number):
+                    continue
+            # メッセージをリプライに偽装する
+            message.reference = discord.MessageReference(
+                message_id=quizMessage.id,
+                channel_id=quizMessage.channel.id,
+                guild_id=quizMessage.guild.id,
+            )
+            message.reference.resolved = quizMessage
+            session = QuizSession(self.bot, name, self.state)
+            # 回答後も同じVCで鳴き声を流せるように、回答元のVCを引き継ぐ
+            session.voice_channel = voice_channel_for(message.channel)
+            await session.try_response(message)
+            return
         if is_pokemon:
             ub.output_warning("ポケモン名が投稿されましたがクイズ投稿が見つかりませんでした")
+
+    async def _scan_open_quizzes(self, channel) -> dict:
+        """チャンネルの履歴から出題中のクイズを探して覚える。読んだ投稿を返す。
+
+        ふだんは出題・開示のたびに覚え直すので、チャンネルごとに最初の1回だけ走る
+        （1件も無かったことも覚えるので、次に出題されるまで読み直さない）。
+        """
+        found = {}
+        quizzes = []
+        async for quizMessage in channel.history(limit=OPEN_QUIZ_SCAN):
+            # ほかのBot（テスト用など）が出したクイズには反応しない
+            if quizMessage.author != self.bot.user or not quizMessage.embeds:
+                continue
+            footer = quizMessage.embeds[0].footer.text or ""
+            if QUIZ_FOOTER not in footer or "(done)" in footer:
+                continue
+            quizzes.append((quizMessage.id, footer.split()[3]))
+            found[quizMessage.id] = quizMessage
+        self.state.open_quizzes[channel.id] = quizzes[:OPEN_QUIZ_LIMIT]
+        return found
 
     async def _answer_acq(self, interaction: discord.Interaction):
         """物理特殊クイズのボタンを回答にする。"""

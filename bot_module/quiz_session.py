@@ -60,6 +60,10 @@ def dex_answers(entries) -> dict:
     return answers
 
 
+# 1つのチャンネルで覚えておく出題中のクイズの数
+OPEN_QUIZ_LIMIT = 20
+
+
 def pokemon_id(pokemon) -> str:
     """判定ログ用のポケモンのID（図鑑番号-フォーム）。"""
     return f"{pokemon.ndex_number}-{pokemon.form_id}"
@@ -159,6 +163,24 @@ class QuizState:
         self.intro_works = []  # イントロクイズの絞り込み: 作品（空は全部）
         self.intro_categories = []  # イントロクイズの絞り込み: 区分（空は全部）
         self.intro_secret = False  # イントロクイズ: シークレットの曲（初期バージョンなど）も出す
+        # 出題中（未回答）のクイズ: チャンネルID -> [(メッセージID, 種別)]（新しい順）。
+        # 返信なしの回答をどのクイズへ入れるか探すのに使う。キーの無いチャンネルは
+        # まだ調べていない（再起動のあとなど）ので、cogs/quiz.py が履歴から作る。
+        self.open_quizzes = {}
+
+    def remember_quiz(self, channel_id, message_id, quiz_name):
+        """出題したクイズを覚える。まだ調べていないチャンネルは、履歴から作るときに入る。"""
+        quizzes = self.open_quizzes.get(channel_id)
+        if quizzes is None:
+            return
+        quizzes.insert(0, (message_id, quiz_name))
+        del quizzes[OPEN_QUIZ_LIMIT:]  # 答えられないまま残ったものが増え続けないように
+
+    def forget_quiz(self, channel_id, message_id):
+        """開示が済んだ・消されたクイズを外す。"""
+        quizzes = self.open_quizzes.get(channel_id)
+        if quizzes:
+            quizzes[:] = [quiz for quiz in quizzes if quiz[0] != message_id]
 
 
 def cry_candidates(state) -> list:
@@ -388,6 +410,10 @@ class QuizSession:
         self.qm = await sendChannel.send(
             content=quizContent, file=quizFile, embed=quizEmbed, view=quizView
         )
+
+        self.state.remember_quiz(
+            getattr(sendChannel, "id", None), getattr(self.qm, "id", None),
+            self.quizName)
 
         await asyncio.to_thread(
             self.__log_post, qDatas, track, cryKind, quizContent, quizEmbed)
@@ -964,6 +990,8 @@ class QuizSession:
             self.quizEmbed.set_thumbnail(url=link)  # サムネイルを変更する
 
         self.quizEmbed.set_footer(text=self.quizEmbed.footer.text + "(done)")
+        self.state.forget_quiz(
+            getattr(getattr(self.qm, "channel", None), "id", None), self.qm.id)
 
         if isinstance(self.rm, discord.Message):
             try:
