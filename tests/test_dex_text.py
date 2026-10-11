@@ -273,3 +273,38 @@ def test_numbers_are_parsed():
         510, 510, 25, 6]
     assert parse_number("ピカチュウ") is None
     assert parse_number("510ばん目くらい") is None
+
+
+def test_the_same_reading_is_one_question_in_kanji():
+    kana = "ヤドンが うみへ エサを とりにいったとき シェルダーに しっぽをかまれ ヤドランになった。"
+    hiragana = "くっついている シェルダーは ヤドンの たべのこした ものを エサにして いきているという。"
+    made = dex_text.DexTextCatalog([
+        ("0080", "00", "赤", kana, kana),  # ひらがなの作品
+        ("0080", "00", "X", YADORAN, kana),  # 漢字の作品（読みは同じ。空白の位置がちがう）
+        ("0080", "00", "青", hiragana, hiragana),
+        ("0080", "00", "スカーレット", "読みがなの 無い 文。", None),
+    ], get_pokedex())
+
+    first, second, third = made.by_species["80"]
+    assert first.text == YADORAN  # 漢字の書き方で出す
+    assert first.titles == ("赤", "X")
+    assert second.text == hiragana and third.text == "読みがなの 無い 文。"
+    # ひらがなの書き方で出した古い投稿からも、同じ問題が引ける
+    pattern = dex_text.name_pattern(r.species_name for r in get_pokedex().records)
+    assert made.find(dex_text.mask_names(kana, pattern)) == [first]
+
+
+def test_paradox_pokemon_are_not_asked():
+    made = dex_text.DexTextCatalog([
+        ("0990", "00", "スカーレット", "科学兵器に よく 似ている。"),
+        ("0080", "00", "赤", YADORAN),
+    ], get_pokedex())
+
+    assert {made.random().species for _ in range(30)} == {"80"}
+    # 出題しないだけで、前に出した問題の答えは引ける
+    assert [entry.species for entry in made.find("科学兵器に よく 似ている。")] == ["990"]
+    only = dex_text.DexTextCatalog([ROWS_PARADOX], get_pokedex())
+    assert only.random() is None
+
+
+ROWS_PARADOX = ("0990", "00", "スカーレット", "科学兵器に よく 似ている。")

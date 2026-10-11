@@ -27,7 +27,7 @@ DEFAULT_PSQL = ("ssh -i ~/.ssh/id_ed25519_pve debian@192.168.10.105 "
                 "sudo docker exec -i pkdb-db-1 psql -U pkdb_reader -d sleepy_pkdb")
 COPIES = (
     (dex_text.DEX_TEXT_PATH,
-     "SELECT t.ndex_number, t.form_id, s.title_name AS title, t.text "
+     "SELECT t.ndex_number, t.form_id, s.title_name AS title, t.text, t.text_kana "
      "FROM pokemon_pokedex_text t JOIN title_solo s ON s.title_id = t.title_id "
      "ORDER BY t.ndex_number, t.form_id, t.title_id"),
     (dex_text.EVOLUTION_PATH,
