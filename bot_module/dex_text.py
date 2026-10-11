@@ -25,12 +25,12 @@ from . import pokedex
 from .logging_setup import logger
 
 DEX_TEXT_PATH = Path("resource/pokedex_text.csv")
-CSV_COLUMNS = ("ndex_number", "form_id", "title", "text")
+CSV_COLUMNS = ("ndex_number", "form_id", "title", "text", "text_kana")
 EVOLUTION_PATH = Path("resource/pokedex_evolution.csv")
 EVOLUTION_COLUMNS = ("before_ndex_number", "after_ndex_number")
 
 DEX_TEXT_SQL = """
-SELECT t.ndex_number, t.form_id, s.title_name, t.text
+SELECT t.ndex_number, t.form_id, s.title_name, t.text, t.text_kana
 FROM pokemon_pokedex_text t
 JOIN title_solo s ON s.title_id = t.title_id
 ORDER BY t.ndex_number, t.form_id, t.title_id
@@ -40,6 +40,14 @@ EVOLUTION_SQL = """
 SELECT DISTINCT before_ndex_number, after_ndex_number FROM pokemon_evolution
 ORDER BY 1, 2
 """
+
+# 出題しない種族（パラドックスポケモン）。説明文が「オカルト雑誌が紹介した〜に似ている」
+# のような書き方ばかりで、名前を伏せると1匹に決まらない。
+EXCLUDED_SPECIES = frozenset(
+    str(number) for number in
+    (*range(984, 996), 1005, 1006, 1009, 1010, *range(1020, 1024)))
+
+KANJI_RE = re.compile(r"[一-龥々]")
 
 # 伏せ字。長さで答えが絞れないよう、名前の長さによらず4つ。
 # Discord が太字の記号として読まないよう、エスケープして出す。
@@ -87,24 +95,32 @@ def mask_names(text: str, pattern: re.Pattern | None) -> str:
 
 class DexTextCatalog:
     def __init__(self, rows, dex: pokedex.Pokedex, evolutions=()):
-        """rows は (図鑑番号, フォーム, 作品名, 説明文) の並び。図鑑に居ない種族は捨てる。
+        """rows は (図鑑番号, フォーム, 作品名, 説明文[, 読みがな]) の並び。
 
+        図鑑に居ない種族は捨てる。同じ種族で読みが同じ文（作品によって漢字か
+        ひらがなかが違うだけの文）は1つにまとめ、漢字の多い書き方で出す。
+        読みがなの無い文は、文そのもので比べる。
         evolutions は (進化前の図鑑番号, 進化後の図鑑番号) の並び。
         """
         titles: dict[tuple[str, str], list[str]] = {}
         forms: dict[tuple[str, str], list[str]] = {}
-        for ndex_number, form_id, title, text in rows:
+        variants: dict[tuple[str, str], list[str]] = {}  # 同じ読みの書き方
+        for ndex_number, form_id, title, text, *rest in rows:
             text = str(text or "").strip()
             if not text:
                 continue
             species = str(int(ndex_number))
-            found = titles.setdefault((species, text), [])
+            reading = str(rest[0]).strip() if rest and rest[0] else text
+            key = (species, re.sub(r"\s+", "", reading))
+            if text not in variants.setdefault(key, []):
+                variants[key].append(text)
+            found = titles.setdefault(key, [])
             if title and title not in found:
                 found.append(title)
             known = {record.form_id for record in dex.variants(species)}
             form = str(form_id) if str(form_id) in known else "00"
-            if form not in forms.setdefault((species, text), []):
-                forms[(species, text)].append(form)
+            if form not in forms.setdefault(key, []):
+                forms[key].append(form)
 
         # 進化でつながる種族をひとまとまりにする（種族 -> 同じまとまりの種族）
         self.families: dict[str, set[str]] = {}
@@ -119,24 +135,30 @@ class DexTextCatalog:
             record.species_name for record in dex.records)
         self.by_species: dict[str, list[DexText]] = {}
         self.by_question: dict[str, list[DexText]] = {}
-        for (species, text), names in titles.items():
-            base = dex.base(species)
-            if base is None:
+        for key, names in titles.items():
+            species = key[0]
+            if dex.base(species) is None:
                 continue
+            # 漢字のいちばん多い書き方（同じなら先に出てきたほう）
+            text = max(variants[key], key=lambda one: len(KANJI_RE.findall(one)))
             entry = DexText(species, text, tuple(names),
-                            mask_names(text, pattern),
-                            tuple(sorted(forms[(species, text)])))
+                            mask_names(text, pattern), tuple(sorted(forms[key])))
             self.by_species.setdefault(species, []).append(entry)
-            self.by_question.setdefault(entry.question, []).append(entry)
+            # まとめる前の書き方で出した古い投稿からも引けるよう、どの書き方でも引く
+            for variant in dict.fromkeys((text, *variants[key])):
+                self.by_question.setdefault(
+                    mask_names(variant, pattern), []).append(entry)
 
     def __len__(self) -> int:
         return sum(len(entries) for entries in self.by_species.values())
 
     def random(self) -> DexText | None:
         """種族を選んでから文を選ぶ（説明文の多い古いポケモンに偏らせない）。"""
-        if not self.by_species:
+        playable = [species for species in self.by_species
+                    if species not in EXCLUDED_SPECIES]
+        if not playable:
             return None
-        return random.choice(self.by_species[random.choice(list(self.by_species))])
+        return random.choice(self.by_species[random.choice(playable)])
 
     def find(self, question: str) -> list[DexText]:
         """クイズの投稿の問題文から、もとの説明文を引く。種族ごとに1つ。"""
@@ -155,7 +177,7 @@ class DexTextCatalog:
 
 def rows_from_csv(path: str | Path, columns=CSV_COLUMNS) -> list[tuple]:
     with open(path, encoding="utf-8-sig", newline="") as file:
-        return [tuple(row[column] for column in columns)
+        return [tuple(row.get(column) for column in columns)
                 for row in csv.DictReader(file)]
 
 
