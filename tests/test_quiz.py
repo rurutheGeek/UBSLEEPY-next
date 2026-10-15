@@ -1284,3 +1284,34 @@ def test_posting_and_revealing_keep_the_open_quizzes():
 
     state.forget_quiz(1, quizzes[0][0])
     assert quizzes[0] == (session_module.OPEN_QUIZ_LIMIT + 3, "bq")
+
+
+def test_a_name_shared_by_two_pokemon_is_judged_by_the_answer(monkeypatch):
+    # 「くさきのミノ」はミノムッチにもミノマダムにもある。正解のほうで判定する
+    burmy = _pokemon(name='ミノムッチ', form_name='くさきのミノ',
+                     hp=40, atk=29, dfn=45, spa=29, spd=45, spe=36)
+    wormadam = _pokemon(name='ミノマダム', form_name='くさきのミノ',
+                        hp=60, atk=59, dfn=85, spa=79, spd=105, spe=36)
+    monkeypatch.setattr(session_module.ub, 'fetch_pokemon',
+                        lambda text: [burmy, wormadam])
+    monkeypatch.setattr(session_module.ub, 'report', lambda *args: None)
+    q = _disclosing_quiz(FakeQuizMessage())
+    q.ansText = 'クサキノミノ'
+    q.ansList = ['ミノマダム']
+    q.ansZero = wormadam
+    disclosed = []
+
+    async def disclose(tf, answered=None):
+        disclosed.append((tf, answered))
+        return 0
+
+    async def add_reaction(emoji):
+        pass
+
+    q._QuizSession__disclose = disclose
+    q._QuizSession__log = lambda *args, **kwargs: None
+    q.rm.add_reaction = add_reaction
+
+    asyncio.run(q._QuizSession__judge())
+
+    assert disclosed == [(True, 'ミノマダム')]

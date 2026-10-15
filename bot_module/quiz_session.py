@@ -607,7 +607,10 @@ class QuizSession:
         notNumber = False
         if self.variant in ["bq", "etojq", "ctojq", "cryq", "dexq", "ntopq"]:
             if found := ub.fetch_pokemon(self.ansText):
-                repPokeData = found[0]
+                # 同じ名前で何匹も当たるとき（「くさきのミノ」はミノムッチにも
+                # ミノマダムにもある）は、正解に入っているほうで判定する
+                repPokeData = next(
+                    (p for p in found if p.name in self.ansList), found[0])
                 fixAns = repPokeData.name
                 if self.quizName == "dexq":
                     fixAns, nearReply = self.__judge_dex(found)
