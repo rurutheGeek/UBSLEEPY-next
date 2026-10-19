@@ -431,17 +431,29 @@ class Harness:
         )
 
     async def cmd_q(self, args):
-        quizname = args[0] if args else "種族値クイズ"
-        mode = args[1] if len(args) > 1 and args[1] != "-" else None  # 出し方（図鑑番号・種族値・穴埋め）
-        holes = int(args[2]) if len(args) > 2 else None  # 穴埋めクイズの穴の数
+        if not args:
+            # クイズを選ぶパネルを出すだけ（選ぶのは q <クイズ名> で）
+            await self.quiz_cog.q.callback(self.quiz_cog, self.interaction, None)
+            return
+        quizname = args[0]
+        # 出題形式パネルで選ぶ値（出し方・穴の数）。- は既定
+        mode = args[1] if len(args) > 1 else "-"
+        holes = args[2] if len(args) > 2 else "-"
         if quizname in self.cfg.QUIZNAME_DICT.values():
             quizname = next(k for k, v in self.cfg.QUIZNAME_DICT.items() if v == quizname)
         if quizname not in self.cfg.QUIZNAME_DICT:
             print(f"使い方: q [{'|'.join(self.cfg.QUIZNAME_DICT)}]")
             return
         before = len(self.channel.sent)
-        await self.quiz_cog.q.callback(
-            self.quiz_cog, self.interaction, quizname, mode, holes)
+        await self.quiz_cog.q.callback(self.quiz_cog, self.interaction, quizname)
+        quiz = self.cfg.QUIZNAME_DICT[quizname]
+        if self.quiz_module.quiz_panel.has_formats(quiz):
+            # 出題形式パネルで選んで「出題」を押したことにする
+            press = FakeInteraction(
+                self.recorder, user=self.interaction.user, channel=self.channel,
+                data={"component_type": 2, "custom_id": self.quiz_module.quiz_panel.go_id(
+                    quiz, {"mode": mode, "holes": holes})})
+            await self.quiz_cog.on_interaction(press)
         posted = [m for m in self.channel.sent[before:] if m.embeds]
         if posted:
             self.quiz_message = posted[-1]
@@ -569,7 +581,7 @@ HELP = """コマンド一覧:
   dex <名前>                    図鑑
   comp <名前> <名前> [...]      種族値比較
   simil <名前> [auto|final|middle|all]  類似ランキング
-  q [クイズ名] [出し方] [穴の数]  出題（bq / 種族値クイズ など。出し方は - で既定）
+  q [クイズ名] [出し方] [穴の数]  出題（bq / 種族値クイズ など。出し方は - で既定。クイズ名なしは選択パネル）
   answer <答え>                 出題への回答（正誤判定）
   hint <ヒント>                 ヒント（特性 / 地方 / ヒント など）
   give                          ギブアップ

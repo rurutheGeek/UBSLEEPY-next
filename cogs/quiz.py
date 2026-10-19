@@ -20,8 +20,7 @@ from bot_module import dex_text
 from bot_module import intro
 from bot_module.pokedex import get_pokedex
 from bot_module import stat_holes
-from bot_module.quiz_kinds import bhq as bhq_kind
-from bot_module.quiz_kinds import bq as bq_kind
+from bot_module import quiz_panel
 from bot_module.quiz_kinds.cryq import (
     CRY_DIRECTORY, CRY_MODE_LABELS, CRY_REPLAY_BUTTON_ID,
     cry_candidates, cry_from_message)
@@ -31,13 +30,8 @@ from bot_module.quiz_session import (
 from bot_module import save
 from bot_module.save import SaveError
 
-# /q の mode: 図鑑番号クイズの出し方（True は番号からポケモンを当てる）
-NUMBER_MODES = {"ポケモン→番号": False, "番号→ポケモン": True}
-# /q の mode の選択肢（図鑑番号クイズ・種族値クイズ・種族値穴埋めクイズの出し方）。
-# 選んだクイズに関係しない出し方は無視する
-QUIZ_MODES = [*NUMBER_MODES, bq_kind.MIN_MODE, bhq_kind.RANDOM_MODE]
-# /q の holes: 種族値穴埋めクイズの穴の数
-HOLE_COUNTS = (1, 2, 3)
+# 図鑑番号クイズの出し方のうち、番号からポケモンを当てるもの
+FROM_NUMBER_MODE = "番号→ポケモン"
 
 # クイズの投稿のフッター（このあとに種別が続く）
 QUIZ_FOOTER = "No.26 ポケモンクイズ"
@@ -237,43 +231,85 @@ class Quiz(commands.Cog):
         await asyncio.to_thread(dex_text.get_catalog)
 
     @discord.app_commands.command(
-        name="q", description="現在の出題設定に基づいてクイズを出題します")
+        name="q", description="クイズを出題します（クイズ・出し方は出てくるメニューで選べます）")
     @scoped
     @discord.app_commands.describe(
-        quizname="クイズの種別 未記入で種族値クイズが指定されます",
-        mode="出し方（図鑑番号・種族値・種族値穴埋めクイズ） 未記入でいつもの出し方",
-        holes="種族値穴埋めクイズの穴の数 未記入で1つ",
+        quizname="クイズの種別 未記入でクイズを選ぶメニューを出します",
     )
     @discord.app_commands.choices(
         quizname=[
             discord.app_commands.Choice(name=val, value=val)
             for val in list(cfg.QUIZNAME_DICT.keys())
         ],
-        mode=[
-            discord.app_commands.Choice(name=val, value=val)
-            for val in QUIZ_MODES
-        ],
-        holes=[
-            discord.app_commands.Choice(name=f"{count}つ", value=count)
-            for count in HOLE_COUNTS
-        ],
     )
-    async def q(self, interaction: discord.Interaction,
-                quizname: str = "種族値クイズ", mode: str = None,
-                holes: int = None):
+    async def q(self, interaction: discord.Interaction, quizname: str = None):
+        if quizname is None:
+            await interaction.response.send_message(
+                quiz_panel.QUIZ_SELECT_TEXT,
+                view=quiz_panel.quiz_select_view(cfg.QUIZNAME_DICT))
+            return
+        quiz = cfg.QUIZNAME_DICT[quizname]
+        if quiz_panel.has_formats(quiz):
+            await interaction.response.send_message(
+                quiz_panel.format_text(cfg.QUIZNAME_DICT, quiz),
+                view=quiz_panel.format_view(quiz, {}))
+            return
         seiseiEmbed = discord.Embed(
             title="**妖精さん おしごとチュウ**",
             color=0xFFFFFF,  # デフォルトカラー
             description=f"{quizname}を生成しています",
         )
         await interaction.response.send_message(embed=seiseiEmbed, delete_after=1)
-        # ボイスチャンネル付属のテキストチャットで出したときは、そこで鳴き声を流す
-        session = QuizSession(self.bot, cfg.QUIZNAME_DICT[quizname], self.state)
-        session.fromNumber = NUMBER_MODES.get(mode, False)
+        await self.start_quiz(interaction.channel, quiz)
+
+    async def start_quiz(self, channel, quiz, mode=None, holes=None):
+        """クイズを出題する。mode・holes は出題形式パネルで選んだ出し方（None は既定）。"""
+        session = QuizSession(self.bot, quiz, self.state)
+        session.fromNumber = mode == FROM_NUMBER_MODE
         session.mode = mode
         session.holes = holes
-        await session.post(
-            interaction.channel, voiceChannel=voice_channel_for(interaction.channel))
+        # ボイスチャンネル付属のテキストチャットで出したときは、そこで鳴き声を流す
+        await session.post(channel, voiceChannel=voice_channel_for(channel))
+
+    async def _quiz_panel(self, interaction: discord.Interaction, custom_id):
+        """/q のパネル（クイズ選択・出題形式の選択・「出題」ボタン）を処理する。"""
+        values = (interaction.data or {}).get("values") or []
+        if custom_id == quiz_panel.QUIZ_SELECT_ID:
+            quiz = values[0] if values else None
+            if quiz not in cfg.QUIZNAME_DICT.values():
+                await interaction.response.defer()
+                return
+            if quiz_panel.has_formats(quiz):
+                await interaction.response.edit_message(
+                    content=quiz_panel.format_text(cfg.QUIZNAME_DICT, quiz),
+                    view=quiz_panel.format_view(quiz, {}))
+                return
+            await self._start_from_panel(interaction, quiz, {})
+            return
+        if custom_id.startswith(quiz_panel.SET_PREFIX):
+            quiz, key = custom_id.removeprefix(quiz_panel.SET_PREFIX).split(":")
+            if quiz not in quiz_panel.FORMATS or not values:
+                await interaction.response.defer()
+                return
+            state = quiz_panel.state_from_message(interaction.message, quiz)
+            state[key] = values[0]
+            await interaction.response.edit_message(
+                view=quiz_panel.format_view(quiz, state))
+            return
+        if custom_id.startswith(quiz_panel.GO_PREFIX):
+            quiz, state = quiz_panel.parse_go(custom_id)
+            await self._start_from_panel(interaction, quiz, state)
+
+    async def _start_from_panel(self, interaction, quiz, state):
+        """パネルを消して出題する（パネルは出題の案内なので、出したら要らない）。"""
+        await interaction.response.defer()
+        try:
+            if interaction.message is not None:
+                await interaction.message.delete()
+        except (discord.NotFound, discord.Forbidden, discord.HTTPException):
+            pass
+        mode, holes = quiz_panel.session_options(state)
+        await self.start_quiz(interaction.channel, quiz, mode, holes)
 
     @commands.Cog.listener()
     async def on_voice_state_update(self, member, before, after):
@@ -591,8 +627,11 @@ class Quiz(commands.Cog):
 
     @commands.Cog.listener()
     async def on_interaction(self, interaction: discord.Interaction):
-        """クイズのボタン（物理特殊クイズの回答、「もう一度再生」）を処理する。"""
+        """クイズのボタン（物理特殊クイズの回答、「もう一度再生」、/q のパネル）を処理する。"""
         data = interaction.data or {}
+        if (data.get("custom_id") or "").startswith(quiz_panel.PREFIX):
+            await self._quiz_panel(interaction, data["custom_id"])
+            return
         if data.get("component_type") != 2:
             return
         if (data.get("custom_id") or "").startswith("acq_"):
