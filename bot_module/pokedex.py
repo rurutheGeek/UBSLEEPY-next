@@ -83,6 +83,7 @@ HINT_FIELDS = {
     "分類": "category",
     "初登場作品": "first_title",
     "英語名由来": "etymology",
+    "合計": "total",  # 種族値穴埋めクイズ
 }
 
 

@@ -68,7 +68,8 @@ CREATE INDEX IF NOT EXISTS quiz_log_user_idx ON quiz_log (user_id, quiz_name);
 -- answer_id=正解のID（図鑑番号-フォーム、曲ID。正解が複数なら | 区切り）、
 -- input_raw=入力の原文、input_id=入力をどのポケモンと解釈したか、
 -- hints=その時点で出ていたヒント（| 区切り）、
--- detail=ヒントなら出した項目、イントロなら判定の内訳（ambiguous など）
+-- detail=ヒントなら出した項目、イントロなら判定の内訳（ambiguous など）、
+--   種族値穴埋めなら一部だけ合った誤答の合った欄（「Bが正解」）
 ALTER TABLE quiz_log ADD COLUMN IF NOT EXISTS answer_id TEXT;
 ALTER TABLE quiz_log ADD COLUMN IF NOT EXISTS input_raw TEXT;
 ALTER TABLE quiz_log ADD COLUMN IF NOT EXISTS input_id TEXT;

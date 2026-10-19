@@ -90,6 +90,9 @@ class QuizSession:
         self.voice_channel = None  # 出題時に鳴き声を流すボイスチャンネル
         # 図鑑番号クイズの出し方: 番号からポケモンを当てる（既定はポケモンから番号）
         self.fromNumber = False
+        # /q の mode（種族値クイズ・穴埋めクイズの出し方。None は既定）と、穴埋めの穴の数
+        self.mode = None
+        self.holes = None
 
     @property
     def variant(self):
@@ -172,7 +175,7 @@ class QuizSession:
             # customIDが"acq_こうげき/とくこう/同値"のようなかたちを想定
 
         self.quizEmbed = self.qm.embeds[0]
-        self.kind.restore(self)  # 図鑑番号クイズの出し方・種族値クイズのグラフ
+        self.kind.restore(self)  # 出し方（図鑑番号・種族値・穴埋め）・種族値クイズのグラフ
         # この時点で出ているヒント（判定ログに残す。ヒントを足す前に控える）
         self.hintsShown = [field.name for field in self.quizEmbed.fields]
         self.hintGiven = None
@@ -383,6 +386,8 @@ class QuizSession:
             # 「生成チュウ」の表示は送信と削除で往復が増えるので出さない
             session = QuizSession(self.bot, self.quizName, self.state)
             session.fromNumber = self.fromNumber  # 同じ出し方で続ける
+            session.mode = self.mode
+            session.holes = self.holes
             await session.post(
                 self.qm.channel, voiceChannel=self.voice_channel)
 

@@ -64,6 +64,7 @@
     "SYSTEM_DICT_DICT": {
         "QUIZNAME_DICT": {
             "種族値クイズ": "bq",
+            "種族値穴埋めクイズ": "bhq",
             "鳴き声クイズ": "cryq",
             "イントロクイズ": "introq",
             "図鑑説明クイズ": "dexq",

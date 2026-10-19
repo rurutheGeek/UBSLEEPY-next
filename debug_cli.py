@@ -432,7 +432,8 @@ class Harness:
 
     async def cmd_q(self, args):
         quizname = args[0] if args else "種族値クイズ"
-        mode = args[1] if len(args) > 1 else None  # 図鑑番号クイズの出し方
+        mode = args[1] if len(args) > 1 and args[1] != "-" else None  # 出し方（図鑑番号・種族値・穴埋め）
+        holes = int(args[2]) if len(args) > 2 else None  # 穴埋めクイズの穴の数
         if quizname in self.cfg.QUIZNAME_DICT.values():
             quizname = next(k for k, v in self.cfg.QUIZNAME_DICT.items() if v == quizname)
         if quizname not in self.cfg.QUIZNAME_DICT:
@@ -440,7 +441,7 @@ class Harness:
             return
         before = len(self.channel.sent)
         await self.quiz_cog.q.callback(
-            self.quiz_cog, self.interaction, quizname, mode)
+            self.quiz_cog, self.interaction, quizname, mode, holes)
         posted = [m for m in self.channel.sent[before:] if m.embeds]
         if posted:
             self.quiz_message = posted[-1]
@@ -568,7 +569,7 @@ HELP = """コマンド一覧:
   dex <名前>                    図鑑
   comp <名前> <名前> [...]      種族値比較
   simil <名前> [auto|final|middle|all]  類似ランキング
-  q [クイズ名]                  出題（bq / 種族値クイズ など）
+  q [クイズ名] [出し方] [穴の数]  出題（bq / 種族値クイズ など。出し方は - で既定）
   answer <答え>                 出題への回答（正誤判定）
   hint <ヒント>                 ヒント（特性 / 地方 / ヒント など）
   give                          ギブアップ
