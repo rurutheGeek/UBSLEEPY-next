@@ -96,6 +96,13 @@ class QuizKind:
 
     # --- 判定 ---
 
+    async def judge(self, s) -> bool:
+        """判定から記録・開示までを種別が自分で行うなら、行って True。
+
+        既定は False（interpret で読み取り、QuizSession が判定する）。
+        """
+        return False
+
     def interpret(self, s) -> Judgement:
         """回答を読み取る。"""
         return Judgement(answer=s.ansText)

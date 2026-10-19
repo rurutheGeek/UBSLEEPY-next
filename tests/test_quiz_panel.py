@@ -58,8 +58,8 @@ def _cog(monkeypatch):
     cog = quiz_module.Quiz(FakeBot())
     started = []
 
-    async def start_quiz(channel, quiz, mode=None, holes=None):
-        started.append((quiz, mode, holes))
+    async def start_quiz(channel, start):
+        started.append(start)
 
     monkeypatch.setattr(cog, "start_quiz", start_quiz)
     return cog, started
@@ -81,21 +81,28 @@ def test_q_without_a_quiz_shows_the_quiz_menu(monkeypatch):
     assert started == []
 
 
+def test_the_stats_quizzes_are_one_quiz():
+    # 種族値を使うクイズは、みな種族値クイズの出し方。物理特殊クイズは別
+    assert "bhq" not in cfg.QUIZNAME_DICT.values()
+    assert "bvq" not in cfg.QUIZNAME_DICT.values()
+    assert "acq" in cfg.QUIZNAME_DICT.values()
+
+
 def test_q_with_a_quiz_shows_only_that_quizs_formats(monkeypatch):
     cog, started = _cog(monkeypatch)
     interaction = FakeInteraction()
-    asyncio.run(cog.q.callback(cog, interaction, "種族値穴埋めクイズ"))
+    asyncio.run(cog.q.callback(cog, interaction, "種族値クイズ"))
     content, kwargs = interaction.response.sent[0]
-    assert "種族値穴埋めクイズ" in content
-    assert _ids(kwargs["view"]) == [
-        "qpanel:set:bhq:holes", "qpanel:set:bhq:mode", "qpanel:go:bhq:-:-"]
+    assert "種族値クイズ" in content
+    # 穴の数・位置は、穴埋めを選ぶまで出さない
+    assert _ids(kwargs["view"]) == ["qpanel:set:bq:mode", "qpanel:go:bq:mode=-"]
     assert started == []
 
 
 def test_q_with_a_quiz_without_formats_posts_at_once(monkeypatch):
     cog, started = _cog(monkeypatch)
     asyncio.run(cog.q.callback(cog, FakeInteraction(), "物理特殊クイズ"))
-    assert started == [("acq", None, None)]
+    assert started == [quiz_panel.Start("acq")]
 
 
 def test_choosing_a_quiz_turns_the_panel_into_its_formats(monkeypatch):
@@ -106,7 +113,7 @@ def test_choosing_a_quiz_turns_the_panel_into_its_formats(monkeypatch):
     asyncio.run(cog.on_interaction(interaction))
     edited = interaction.response.edited[0]
     assert "図鑑番号クイズ" in edited["content"]
-    assert _ids(edited["view"])[-1] == "qpanel:go:noq:-:-"
+    assert _ids(edited["view"])[-1] == "qpanel:go:noq:mode=-"
     assert started == []
 
 
@@ -117,63 +124,62 @@ def test_choosing_a_quiz_without_formats_posts_and_removes_the_panel(monkeypatch
         {"component_type": 3, "custom_id": quiz_panel.QUIZ_SELECT_ID, "values": ["cryq"]},
         panel)
     asyncio.run(cog.on_interaction(interaction))
-    assert started == [("cryq", None, None)]
+    assert started == [quiz_panel.Start("cryq")]
     assert panel.deleted
 
 
-def test_choosing_formats_keeps_the_other_choices(monkeypatch):
-    cog, started = _cog(monkeypatch)
-    panel = FakePanelMessage(quiz_panel.format_view("bhq", {"holes": "3"}))
+def _select(cog, panel_view, key, value):
     interaction = FakeInteraction(
-        {"component_type": 3, "custom_id": "qpanel:set:bhq:mode",
-         "values": ["穴の位置ランダム"]},
-        panel)
+        {"component_type": 3, "custom_id": f"qpanel:set:bq:{key}", "values": [value]},
+        FakePanelMessage(panel_view))
     asyncio.run(cog.on_interaction(interaction))
-    view = interaction.response.edited[0]["view"]
-    assert _ids(view)[-1] == "qpanel:go:bhq:穴の位置ランダム:3"
+    return interaction.response.edited[0]["view"]
+
+
+def test_choosing_the_hole_format_shows_the_hole_choices(monkeypatch):
+    cog, started = _cog(monkeypatch)
+    view = _select(cog, quiz_panel.format_view("bq", {}), "mode", "穴埋め")
+    assert _ids(view) == [
+        "qpanel:set:bq:mode", "qpanel:set:bq:holes", "qpanel:set:bq:pos",
+        "qpanel:go:bq:mode=穴埋め;holes=-;pos=-"]
+    view = _select(cog, view, "holes", "3")
+    view = _select(cog, view, "pos", "random")
+    assert _ids(view)[-1] == "qpanel:go:bq:mode=穴埋め;holes=3;pos=random"
     # 選んだものが選ばれたまま見える
-    holes_menu, mode_menu = view.children[:2]
-    assert [o.value for o in holes_menu.options if o.default] == ["3"]
-    assert [o.value for o in mode_menu.options if o.default] == ["穴の位置ランダム"]
+    assert [[o.value for o in menu.options if o.default] for menu in view.children[:3]] == [
+        ["穴埋め"], ["3"], ["random"]]
+    # ほかの出し方に戻すと、穴の項目は消える
+    view = _select(cog, view, "mode", "すばやさをあてる")
+    assert _ids(view) == ["qpanel:set:bq:mode", "qpanel:go:bq:mode=すばやさをあてる"]
 
 
 def test_the_go_button_posts_with_the_choices(monkeypatch):
     cog, started = _cog(monkeypatch)
     panel = FakePanelMessage()
-    interaction = FakeInteraction(
-        {"component_type": 2, "custom_id": "qpanel:go:bhq:穴の位置ランダム:2"}, panel)
-    asyncio.run(cog.on_interaction(interaction))
-    assert started == [("bhq", "穴の位置ランダム", 2)]
+    asyncio.run(cog.on_interaction(FakeInteraction(
+        {"component_type": 2, "custom_id": "qpanel:go:bq:mode=穴埋め;holes=2;pos=random"},
+        panel)))
+    assert started == [quiz_panel.Start("bhq", "穴の位置ランダム", 2)]
     assert panel.deleted
 
-    cog, started = _cog(monkeypatch)
-    asyncio.run(cog.on_interaction(FakeInteraction(
-        {"component_type": 2, "custom_id": "qpanel:go:bq:-:-"}, FakePanelMessage())))
-    assert started == [("bq", None, None)]
 
-
-def test_the_number_quiz_direction_comes_from_the_panel(monkeypatch):
-    cog = quiz_module.Quiz(FakeBot())
-    sessions = []
-
-    class Session:
-        def __init__(self, bot, quiz, state=None):
-            sessions.append(self)
-
-        async def post(self, channel, voiceChannel=None):
-            pass
-
-    monkeypatch.setattr(quiz_module, "QuizSession", Session)
-    asyncio.run(cog.start_quiz(object(), "noq", "番号→ポケモン"))
-    asyncio.run(cog.start_quiz(object(), "noq"))
-    assert [s.fromNumber for s in sessions] == [True, False]
+def test_resolve_picks_the_quiz_kind():
+    resolve = quiz_panel.resolve
+    assert resolve("bq", {}) == quiz_panel.Start("bq")
+    assert resolve("bq", {"mode": "1匹に決まる欄だけ"}) == quiz_panel.Start("bq", "1匹に決まる欄だけ")
+    assert resolve("bq", {"mode": "穴埋め", "holes": "-", "pos": "-"}) == quiz_panel.Start("bhq")
+    assert resolve("bq", {"mode": "一番高い欄をあてる"}) == quiz_panel.Start("bvq", "一番高い欄をあてる")
+    assert resolve("bq", {"mode": "すばやさをあてる"}) == quiz_panel.Start("bvq", "すばやさをあてる")
+    assert resolve("noq", {"mode": "番号→ポケモン"}).from_number
+    assert not resolve("noq", {}).from_number
 
 
 def test_every_panel_fits_discord_limits():
     for quiz in quiz_panel.FORMATS:
-        view = quiz_panel.format_view(quiz, {})
-        assert len(view.children) <= 5
-        for child in view.children:
-            assert len(child.custom_id) <= 100
-            if isinstance(child, discord.ui.Select):
-                assert all(len(o.label) <= 100 for o in child.options)
+        for mode in ("-", "穴埋め"):
+            view = quiz_panel.format_view(quiz, {"mode": mode})
+            assert len(view.children) <= 5
+            for child in view.children:
+                assert len(child.custom_id) <= 100
+                if isinstance(child, discord.ui.Select):
+                    assert all(len(o.label) <= 100 for o in child.options)

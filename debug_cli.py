@@ -148,6 +148,8 @@ class FakeMessage(discord.Message):
     async def edit(self, **kwargs):
         if kwargs.get("embed") is not None:
             self.embeds = [kwargs["embed"]]
+        if kwargs.get("content") is not None:
+            self.content = kwargs["content"]
         self.channel.recorder.action("message.edit", **kwargs)
         return self
 
@@ -436,9 +438,8 @@ class Harness:
             await self.quiz_cog.q.callback(self.quiz_cog, self.interaction, None)
             return
         quizname = args[0]
-        # 出題形式パネルで選ぶ値（出し方・穴の数）。- は既定
-        mode = args[1] if len(args) > 1 else "-"
-        holes = args[2] if len(args) > 2 else "-"
+        # 出題形式パネルで選ぶ値（出し方・穴の数・穴の位置）。- は既定
+        state = dict(zip(("mode", "holes", "pos"), args[1:4]))
         if quizname in self.cfg.QUIZNAME_DICT.values():
             quizname = next(k for k, v in self.cfg.QUIZNAME_DICT.items() if v == quizname)
         if quizname not in self.cfg.QUIZNAME_DICT:
@@ -452,12 +453,13 @@ class Harness:
             press = FakeInteraction(
                 self.recorder, user=self.interaction.user, channel=self.channel,
                 data={"component_type": 2, "custom_id": self.quiz_module.quiz_panel.go_id(
-                    quiz, {"mode": mode, "holes": holes})})
+                    quiz, state)})
             await self.quiz_cog.on_interaction(press)
         posted = [m for m in self.channel.sent[before:] if m.embeds]
         if posted:
             self.quiz_message = posted[-1]
-            self.quiz_name = self.cfg.QUIZNAME_DICT[quizname]
+            # 出し方によって種別が変わる（種族値クイズの穴埋めは bhq など）ので、フッターから
+            self.quiz_name = self.quiz_message.embeds[0].footer.text.split()[3]
             print(f"→ 出題: {quizname}（answer / hint / give / press で応答を試せる）")
 
     async def cmd_answer(self, args):
@@ -581,7 +583,7 @@ HELP = """コマンド一覧:
   dex <名前>                    図鑑
   comp <名前> <名前> [...]      種族値比較
   simil <名前> [auto|final|middle|all]  類似ランキング
-  q [クイズ名] [出し方] [穴の数]  出題（bq / 種族値クイズ など。出し方は - で既定。クイズ名なしは選択パネル）
+  q [クイズ名] [出し方] [穴の数] [穴の位置]  出題（例: q bq 穴埋め 2 random。- は既定。クイズ名なしは選択パネル）
   answer <答え>                 出題への回答（正誤判定）
   hint <ヒント>                 ヒント（特性 / 地方 / ヒント など）
   give                          ギブアップ
