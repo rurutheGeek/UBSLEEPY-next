@@ -9,6 +9,7 @@ import pytest
 
 import bot_module.intro as intro
 import bot_module.quiz_session as session_module
+import bot_module.quiz_kinds.cryq as cryq_module
 import cogs.quiz as quiz_module
 from test_quiz import (
     FakeBot, FakeButtonInteraction, FakeChannel, FakeMessage, FakeQM, FakeRM,
@@ -358,7 +359,7 @@ def test_intro_quiz_plays_in_the_voice_channel(monkeypatch, library):
     assert guild.voice_client.played[0].endswith('.ogg')
     kwargs = channel.sent[0][1]
     assert 'ボイスチャンネルで流します' in kwargs['embed'].description
-    assert any(getattr(child, 'custom_id', None) == session_module.CRY_REPLAY_BUTTON_ID
+    assert any(getattr(child, 'custom_id', None) == cryq_module.CRY_REPLAY_BUTTON_ID
                for child in kwargs['view'].children)
 
 
