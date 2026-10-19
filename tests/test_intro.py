@@ -688,9 +688,9 @@ class FakeInteraction:
 
 def test_q_has_no_options_for_the_intro_quiz():
     # イントロクイズの絞り込みは /introdata だけで行う。/q のオプションは、
-    # クイズの種別と、出し方（mode）と、種族値穴埋めクイズの穴の数（holes）だけ
+    # クイズの種別だけ（出し方は /q のあとに出るパネルで選ぶ）
     assert [parameter.name for parameter in quiz_module.Quiz.q.parameters] == [
-        'quizname', 'mode', 'holes']
+        'quizname']
 
 
 def test_q_posts_the_intro_quiz_with_the_filters_from_introdata(library):

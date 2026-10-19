@@ -90,7 +90,7 @@ class QuizSession:
         self.voice_channel = None  # 出題時に鳴き声を流すボイスチャンネル
         # 図鑑番号クイズの出し方: 番号からポケモンを当てる（既定はポケモンから番号）
         self.fromNumber = False
-        # /q の mode（種族値クイズ・穴埋めクイズの出し方。None は既定）と、穴埋めの穴の数
+        # 出題形式パネルで選んだ出し方（None は既定）と、穴埋めの穴の数
         self.mode = None
         self.holes = None
 
