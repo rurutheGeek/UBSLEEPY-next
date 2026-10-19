@@ -213,10 +213,10 @@ def test_a_form_text_is_answered_by_the_form_name(
 
 
 def _number_quiz(harness, monkeypatch, *mode):
-    import bot_module.quiz_session as session_module
+    import bot_module.quiz_kinds.noq as noq_module
 
     monkeypatch.setattr(
-        session_module.random, "choice",
+        noq_module.random, "choice",
         lambda candidates: next(p for p in candidates if p.species == "510"))
     asyncio.run(harness.dispatch(["q", "noq", *mode]))
 
@@ -267,7 +267,7 @@ def test_the_number_quiz_asks_the_number(harness, monkeypatch, capsys):
 
 
 def test_numbers_are_parsed():
-    from bot_module.quiz_session import parse_number
+    from bot_module.quiz_kinds.noq import parse_number
 
     assert [parse_number(text) for text in ("510", "No.510", "no25", "００６番")] == [
         510, 510, 25, 6]

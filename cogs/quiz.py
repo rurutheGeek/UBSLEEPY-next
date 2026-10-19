@@ -19,10 +19,12 @@ import bot_module.guild_settings as guild_settings
 from bot_module import dex_text
 from bot_module import intro
 from bot_module.pokedex import get_pokedex
+from bot_module.quiz_kinds.cryq import (
+    CRY_DIRECTORY, CRY_MODE_LABELS, CRY_REPLAY_BUTTON_ID,
+    cry_candidates, cry_from_message)
+from bot_module.quiz_kinds.noq import parse_number
 from bot_module.quiz_session import (
-    CRY_DIRECTORY, CRY_MODE_LABELS, CRY_REPLAY_BUTTON_ID, OPEN_QUIZ_LIMIT,
-    QuizSession, QuizState,
-    cry_candidates, cry_from_message, parse_number, play_cry)
+    OPEN_QUIZ_LIMIT, QuizSession, QuizState, play_cry)
 from bot_module import save
 from bot_module.save import SaveError
 

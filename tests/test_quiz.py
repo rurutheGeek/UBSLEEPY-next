@@ -10,6 +10,9 @@ import discord
 
 import bot_module.config as cfg
 import bot_module.quiz_session as session_module
+import bot_module.quiz_kinds.base as base_module
+import bot_module.quiz_kinds.bq as bq_module
+import bot_module.quiz_kinds.cryq as cryq_module
 import cogs.quiz as quiz_module
 from bot_module.pokedex import Pokemon
 
@@ -262,12 +265,12 @@ def _cry_project(tmp_path, kinds):
 
 def _cry_session(monkeypatch, tmp_path, kinds, mode=None):
     cry_dir = _cry_project(tmp_path, kinds)
-    monkeypatch.setattr(session_module, 'CRY_DIRECTORY', cry_dir)
+    monkeypatch.setattr(cryq_module, 'CRY_DIRECTORY', cry_dir)
 
     class FakePokedex:
         records = [_pokemon()]
 
-    monkeypatch.setattr(session_module, 'get_pokedex', lambda: FakePokedex())
+    monkeypatch.setattr(cryq_module, 'get_pokedex', lambda: FakePokedex())
     state = quiz_module.QuizState()
     if mode is not None:
         state.cry_mode = mode
@@ -280,9 +283,9 @@ def test_cry_quiz_posts_the_cry_and_derives_the_answer(monkeypatch, tmp_path):
     asyncio.run(session.post(channel))
 
     filename = channel.sent[0][1]['file'].filename
-    assert session_module.CRY_FILENAME_RE.match(filename)
+    assert cryq_module.CRY_FILENAME_RE.match(filename)
     # 投稿の添付ファイル名から答えを逆算できる（状態を持たない）
-    assert session_module.cry_from_message(session.qm) == ('リザードン', 'latest')
+    assert cryq_module.cry_from_message(session.qm) == ('リザードン', 'latest')
 
 
 def test_cry_quiz_filenames_change_every_time(monkeypatch, tmp_path):
@@ -294,7 +297,7 @@ def test_cry_quiz_filenames_change_every_time(monkeypatch, tmp_path):
     second = channel.sent[1][1]['file'].filename
 
     assert first != second  # nonceで毎回変わる＝覚えたハッシュは使えない
-    assert session_module.cry_from_message(session.qm) == ('リザードン', 'latest')
+    assert cryq_module.cry_from_message(session.qm) == ('リザードン', 'latest')
 
 
 def test_cry_quiz_uses_only_the_new_cry_by_default(monkeypatch, tmp_path):
@@ -302,7 +305,7 @@ def test_cry_quiz_uses_only_the_new_cry_by_default(monkeypatch, tmp_path):
     asyncio.run(session.post(FakeChannel()))
 
     assert session.state.cry_mode == 'latest'  # 既定は今の鳴き声
-    assert session_module.cry_from_message(session.qm) == ('リザードン', 'latest')
+    assert cryq_module.cry_from_message(session.qm) == ('リザードン', 'latest')
 
 
 def test_cry_quiz_can_use_the_old_cry(monkeypatch, tmp_path):
@@ -310,7 +313,7 @@ def test_cry_quiz_can_use_the_old_cry(monkeypatch, tmp_path):
                            mode='legacy')
     asyncio.run(session.post(FakeChannel()))
 
-    assert session_module.cry_from_message(session.qm) == ('リザードン', 'legacy')
+    assert cryq_module.cry_from_message(session.qm) == ('リザードン', 'legacy')
 
 
 def _cry_dir_with(tmp_path, name, kinds):
@@ -324,19 +327,19 @@ def _cry_dir_with(tmp_path, name, kinds):
 def test_cry_candidates_respects_the_mode_and_filter(monkeypatch, tmp_path):
     # モード「昔」はBWまでなので、ガラルなど新しい地方を絞ると0件になる
     monkeypatch.setattr(
-        session_module, 'CRY_DIRECTORY',
+        cryq_module, 'CRY_DIRECTORY',
         _cry_dir_with(tmp_path, '0810.ogg', ('latest', 'legacy')))
     state = quiz_module.QuizState()
     state.cry_filter_dict = {'出身地': ['ガラル']}
 
-    assert [p.name for p, _ in session_module.cry_candidates(state)] == ['サルノリ']
+    assert [p.name for p, _ in cryq_module.cry_candidates(state)] == ['サルノリ']
     state.cry_mode = 'legacy'
-    assert session_module.cry_candidates(state) == []
+    assert cryq_module.cry_candidates(state) == []
 
 
 def test_cry_post_explains_when_the_mode_has_no_cries(monkeypatch, tmp_path):
     monkeypatch.setattr(
-        session_module, 'CRY_DIRECTORY',
+        cryq_module, 'CRY_DIRECTORY',
         _cry_dir_with(tmp_path, '1.ogg', ('latest', 'legacy')))
     state = quiz_module.QuizState()
     state.cry_mode = 'legacy'
@@ -366,12 +369,12 @@ class FilterPokedex:
 def test_cry_quiz_respects_the_region_filter(monkeypatch, tmp_path):
     cry_dir = _cry_project(tmp_path, ('latest',))
     (cry_dir / 'latest' / '0888.ogg').write_bytes(b'ogg')
-    monkeypatch.setattr(session_module, 'CRY_DIRECTORY', cry_dir)
+    monkeypatch.setattr(cryq_module, 'CRY_DIRECTORY', cry_dir)
 
     kanto = _pokemon()
     galar = _pokemon(ndex_number='0888', name='ザシアン', species_name='ザシアン',
                      region='ガラル', eng='Zacian')
-    monkeypatch.setattr(session_module, 'get_pokedex',
+    monkeypatch.setattr(cryq_module, 'get_pokedex',
                         lambda: FilterPokedex([kanto, galar]))
 
     state = quiz_module.QuizState()
@@ -379,7 +382,7 @@ def test_cry_quiz_respects_the_region_filter(monkeypatch, tmp_path):
     session = quiz_module.QuizSession(FakeBot(), 'cryq', state)
     asyncio.run(session.post(FakeChannel()))
 
-    assert session_module.cry_from_message(session.qm) == ('ザシアン', 'latest')
+    assert cryq_module.cry_from_message(session.qm) == ('ザシアン', 'latest')
 
 
 def test_crydata_sets_conditions_and_resets(monkeypatch):
@@ -477,7 +480,7 @@ def test_the_cry_quiz_has_a_replay_button_in_a_voice_chat(monkeypatch, tmp_path)
 
     view = channel.sent[0][1]['view']
     assert view is not None
-    assert any(getattr(child, 'custom_id', None) == session_module.CRY_REPLAY_BUTTON_ID
+    assert any(getattr(child, 'custom_id', None) == cryq_module.CRY_REPLAY_BUTTON_ID
                for child in view.children)
     assert 'ボイスチャンネルで流します' in channel.sent[0][1]['embed'].description
 
@@ -503,14 +506,14 @@ class FakeButtonResponse:
 class FakeButtonInteraction:
     def __init__(self, message, guild):
         self.data = {'component_type': 2,
-                     'custom_id': session_module.CRY_REPLAY_BUTTON_ID}
+                     'custom_id': cryq_module.CRY_REPLAY_BUTTON_ID}
         self.message = message
         self.guild = guild
         self.response = FakeButtonResponse()
 
 
 def _cry_message():
-    filename = session_module.cry_filename('リザードン', 'latest', 'abc123')
+    filename = cryq_module.cry_filename('リザードン', 'latest', 'abc123')
     attachment = type('A', (), {'filename': filename})()
     return FakeMessage(author=None, attachments=[attachment])
 
@@ -743,7 +746,7 @@ def test_cry_quiz_resolves_the_answer_from_the_state(monkeypatch):
     class FakePokedex:
         records = [_pokemon()]
 
-    monkeypatch.setattr(session_module, 'get_pokedex', lambda: FakePokedex())
+    monkeypatch.setattr(cryq_module, 'get_pokedex', lambda: FakePokedex())
 
     q = _quiz('cryq')
     q.examText = 'リザードン'
@@ -755,7 +758,7 @@ def test_cry_quiz_resolves_the_answer_from_the_state(monkeypatch):
 
 
 def test_bq_post_reports_no_matching_pokemon(monkeypatch):
-    monkeypatch.setattr(session_module, "get_pokedex", lambda: FakePokedex())
+    monkeypatch.setattr(bq_module, "get_pokedex", lambda: FakePokedex())
     channel = FakeChannel()
 
     asyncio.run(_quiz().post(channel))
@@ -1136,7 +1139,7 @@ def test_a_post_is_logged_with_the_source_and_the_conditions(monkeypatch, tmp_pa
     _guild, quiz_name, message_id, question, answer, answer_id, conditions = posts[0]
     assert (quiz_name, question, answer) == ('cryq', 'リザードン', 'リザードン')
     assert message_id == getattr(session.qm, 'id', None)
-    assert answer_id == session_module.pokemon_id(_pokemon())
+    assert answer_id == base_module.pokemon_id(_pokemon())
     assert conditions == {'連続出題': True, 'モード': 'latest',
                           '絞り込み': {}, '鳴き声': 'latest'}
 
@@ -1145,7 +1148,7 @@ def test_a_post_that_was_not_sent_is_not_logged(monkeypatch):
     posts = []
     monkeypatch.setattr(session_module.save, 'add_quiz_post',
                         lambda *args: posts.append(args))
-    monkeypatch.setattr(session_module, "get_pokedex", lambda: FakePokedex())
+    monkeypatch.setattr(bq_module, "get_pokedex", lambda: FakePokedex())
 
     asyncio.run(_quiz().post(FakeChannel()))  # 条件に合うポケモンがいない
 
@@ -1160,7 +1163,7 @@ def test_bq_log_lists_every_pokemon_with_the_same_stats(monkeypatch):
     class Twins:
         records = [first, twin]
 
-    monkeypatch.setattr(session_module, 'get_pokedex', lambda: Twins())
+    monkeypatch.setattr(bq_module, 'get_pokedex', lambda: Twins())
     q = _quiz()
     q.ansZero = first
 
