@@ -19,6 +19,9 @@ import bot_module.guild_settings as guild_settings
 from bot_module import dex_text
 from bot_module import intro
 from bot_module.pokedex import get_pokedex
+from bot_module import stat_holes
+from bot_module.quiz_kinds import bhq as bhq_kind
+from bot_module.quiz_kinds import bq as bq_kind
 from bot_module.quiz_kinds.cryq import (
     CRY_DIRECTORY, CRY_MODE_LABELS, CRY_REPLAY_BUTTON_ID,
     cry_candidates, cry_from_message)
@@ -30,6 +33,11 @@ from bot_module.save import SaveError
 
 # /q の mode: 図鑑番号クイズの出し方（True は番号からポケモンを当てる）
 NUMBER_MODES = {"ポケモン→番号": False, "番号→ポケモン": True}
+# /q の mode の選択肢（図鑑番号クイズ・種族値クイズ・種族値穴埋めクイズの出し方）。
+# 選んだクイズに関係しない出し方は無視する
+QUIZ_MODES = [*NUMBER_MODES, bq_kind.MIN_MODE, bhq_kind.RANDOM_MODE]
+# /q の holes: 種族値穴埋めクイズの穴の数
+HOLE_COUNTS = (1, 2, 3)
 
 # クイズの投稿のフッター（このあとに種別が続く）
 QUIZ_FOOTER = "No.26 ポケモンクイズ"
@@ -233,7 +241,8 @@ class Quiz(commands.Cog):
     @scoped
     @discord.app_commands.describe(
         quizname="クイズの種別 未記入で種族値クイズが指定されます",
-        mode="図鑑番号クイズの出し方 未記入でポケモンから番号を当てます",
+        mode="出し方（図鑑番号・種族値・種族値穴埋めクイズ） 未記入でいつもの出し方",
+        holes="種族値穴埋めクイズの穴の数 未記入で1つ",
     )
     @discord.app_commands.choices(
         quizname=[
@@ -242,11 +251,16 @@ class Quiz(commands.Cog):
         ],
         mode=[
             discord.app_commands.Choice(name=val, value=val)
-            for val in NUMBER_MODES
+            for val in QUIZ_MODES
+        ],
+        holes=[
+            discord.app_commands.Choice(name=f"{count}つ", value=count)
+            for count in HOLE_COUNTS
         ],
     )
     async def q(self, interaction: discord.Interaction,
-                quizname: str = "種族値クイズ", mode: str = None):
+                quizname: str = "種族値クイズ", mode: str = None,
+                holes: int = None):
         seiseiEmbed = discord.Embed(
             title="**妖精さん おしごとチュウ**",
             color=0xFFFFFF,  # デフォルトカラー
@@ -256,6 +270,8 @@ class Quiz(commands.Cog):
         # ボイスチャンネル付属のテキストチャットで出したときは、そこで鳴き声を流す
         session = QuizSession(self.bot, cfg.QUIZNAME_DICT[quizname], self.state)
         session.fromNumber = NUMBER_MODES.get(mode, False)
+        session.mode = mode
+        session.holes = holes
         await session.post(
             interaction.channel, voiceChannel=voice_channel_for(interaction.channel))
 
@@ -470,12 +486,12 @@ class Quiz(commands.Cog):
         elif (message.guild is not None
               and message.channel.id == guild_settings.setting(
                   message.guild.id, 'QUIZ_CHANNEL_ID')):
-            await self._answer_in_channel(message, ("bq", "cryq", "introq", "dexq", "noq"))
+            await self._answer_in_channel(message, ("bq", "bhq", "cryq", "introq", "dexq", "noq"))
 
         # ボイスチャンネル付属のテキストチャット（鳴き声クイズへの回答）
         elif (message.guild is not None
               and voice_channel_for(message.channel) is not None):
-            await self._answer_in_channel(message, ("cryq", "introq", "bq", "dexq", "noq"))
+            await self._answer_in_channel(message, ("cryq", "introq", "bq", "bhq", "dexq", "noq"))
 
     async def _answer_in_channel(self, message, quiz_names):
         """チャンネルに書かれたポケモン名・曲名を、最新の未回答クイズへの回答にする。
@@ -483,15 +499,18 @@ class Quiz(commands.Cog):
         図鑑にも曲リストにも無い言葉（雑談など）は無視する（fetch_pokemon は
         見つからないと空のリストを返すので、真偽で判定する）。
         イントロクイズへは曲名だけ、図鑑番号を当てるクイズへは数字だけ、
+        種族値穴埋めクイズへは「b95d85」のような欄と数字（か数字だけ）、
         ほかのクイズへはポケモン名だけを回答にする。
         """
         is_pokemon = bool(ub.fetch_pokemon(message.content))
         is_track = "introq" in quiz_names and bool(intro.find_tracks(message.content))
         is_number = parse_number(message.content) is not None
+        is_stats = stat_holes.looks_like_answer(message.content)
         quiz_names = [
             name for name in quiz_names
             if (is_track if name == "introq"
-                else (is_number or is_pokemon) if name == "noq" else is_pokemon)]
+                else (is_number or is_pokemon) if name == "noq"
+                else is_stats if name == "bhq" else is_pokemon)]
         if not quiz_names:
             return
         channel = message.channel
