@@ -210,6 +210,8 @@ class QuizSession:
 
     async def __judge(self):
         ub.output_log(f"{self.quizName}: 正誤判定を実行")
+        if await self.kind.judge(self):
+            return  # 判定から記録・開示まで種別が自分で行った
 
         # 回答の読み取り（名前の引き当て・おしい・番号など）は種別ごと
         verdict = self.kind.interpret(self)
@@ -248,6 +250,18 @@ class QuizSession:
         if judge != "正答" and isMessage:
             await self.rm.add_reaction(reaction)
 
+        detail = verdict.detail
+        if detail is None and judge is None and verdict.near:
+            detail = "おしい"
+        await self.record(
+            judge, self.ansList[0], detail,
+            pokemon_id(verdict.pokemon) if verdict.pokemon is not None else None)
+
+    async def record(self, judge, exAns, detail=None, input_id=None, question=None):
+        """戦績（正答・誤答のときだけ）と判定ログを残す。
+
+        1つの回答で何度も判定する種別（穴埋め）は、判定ごとに呼ぶ。
+        """
         if judge is not None:
             try:
                 # DBが遅くてもBot全体を止めないよう、別スレッドで書く
@@ -257,15 +271,14 @@ class QuizSession:
                 )  # 回答記録のレポート
             except SaveError:
                 ub.output_error("クイズ戦績の保存に失敗しました")
-                if isMessage:
+                if isinstance(self.rm, discord.Message):
                     await self.rm.reply("戦績の保存に失敗しました")
-
-        detail = verdict.detail
-        if detail is None and judge is None and verdict.near:
-            detail = "おしい"
         await asyncio.to_thread(
-            self.__log, judge, self.ansList[0], None, detail,
-            pokemon_id(verdict.pokemon) if verdict.pokemon is not None else None)
+            self.__log, judge, exAns, None, detail, input_id, question)
+
+    async def disclose(self, tf, answered=None):
+        """答えを開示する（種別が自分で判定するとき用）。先に開示されていたら 1。"""
+        return await self.__disclose(tf, answered)
 
     async def __hint(self):
         ub.output_log(f"{self.quizName}: ヒント表示を実行")
@@ -399,7 +412,8 @@ class QuizSession:
         """正解のID。種族値クイズ・図鑑説明クイズは正解がいくつもあれば、全部並べる。"""
         return self.kind.answer_id(self)
 
-    def __log(self, judge, exAns, recognized=None, detail=None, input_id=None):
+    def __log(self, judge, exAns, recognized=None, detail=None, input_id=None,
+              question=None):
         # 判定ログはDB（ubsleepy.quiz_log）へ。DBが無い手元はCSV（開発用）
         # 分析（間違いやすい問題・書き間違い・本人の苦手）に使う
         logPath = f"log/{self.quizName}log.csv"
@@ -407,7 +421,8 @@ class QuizSession:
         guild_id = getattr(getattr(self.qm, "guild", None), "id", 0) or 0
         if recognized is None:
             recognized = judge is not None
-        question, exAns = self.kind.log_question(self, exAns)
+        logged, exAns = self.kind.log_question(self, exAns)
+        question = logged if question is None else question
         save.add_quiz_log(
             guild_id, self.quizName, judge, question, self.ansText,
             recognized, csv_path=logPath, answer=exAns,

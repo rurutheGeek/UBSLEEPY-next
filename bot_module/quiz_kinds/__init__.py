@@ -9,6 +9,7 @@ from .acq import AttackQuiz
 from .base import QuizKind
 from .bhq import StatHoleQuiz
 from .bq import StatsQuiz
+from .bvq import StatValueQuiz
 from .cryq import CryQuiz
 from .dexq import DexTextQuiz
 from .introq import IntroQuiz
@@ -19,6 +20,7 @@ from .translate import (
 KINDS = {
     "bq": StatsQuiz,
     "bhq": StatHoleQuiz,
+    "bvq": StatValueQuiz,
     "acq": AttackQuiz,
     "etojq": EnglishToJapaneseQuiz,
     "jtoeq": JapaneseToEnglishQuiz,

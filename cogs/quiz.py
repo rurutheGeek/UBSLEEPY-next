@@ -30,8 +30,6 @@ from bot_module.quiz_session import (
 from bot_module import save
 from bot_module.save import SaveError
 
-# 図鑑番号クイズの出し方のうち、番号からポケモンを当てるもの
-FROM_NUMBER_MODE = "番号→ポケモン"
 
 # クイズの投稿のフッター（このあとに種別が続く）
 QUIZ_FOOTER = "No.26 ポケモンクイズ"
@@ -260,14 +258,14 @@ class Quiz(commands.Cog):
             description=f"{quizname}を生成しています",
         )
         await interaction.response.send_message(embed=seiseiEmbed, delete_after=1)
-        await self.start_quiz(interaction.channel, quiz)
+        await self.start_quiz(interaction.channel, quiz_panel.Start(quiz))
 
-    async def start_quiz(self, channel, quiz, mode=None, holes=None):
-        """クイズを出題する。mode・holes は出題形式パネルで選んだ出し方（None は既定）。"""
-        session = QuizSession(self.bot, quiz, self.state)
-        session.fromNumber = mode == FROM_NUMBER_MODE
-        session.mode = mode
-        session.holes = holes
+    async def start_quiz(self, channel, start):
+        """クイズを出題する。start は出題形式パネルで選んだもの（quiz_panel.resolve）。"""
+        session = QuizSession(self.bot, start.quiz_name, self.state)
+        session.fromNumber = start.from_number
+        session.mode = start.mode
+        session.holes = start.holes
         # ボイスチャンネル付属のテキストチャットで出したときは、そこで鳴き声を流す
         await session.post(channel, voiceChannel=voice_channel_for(channel))
 
@@ -293,6 +291,7 @@ class Quiz(commands.Cog):
                 return
             state = quiz_panel.state_from_message(interaction.message, quiz)
             state[key] = values[0]
+            # 出し方を変えると、出てくる項目（穴埋めの穴の数など）も変わる
             await interaction.response.edit_message(
                 view=quiz_panel.format_view(quiz, state))
             return
@@ -308,8 +307,7 @@ class Quiz(commands.Cog):
                 await interaction.message.delete()
         except (discord.NotFound, discord.Forbidden, discord.HTTPException):
             pass
-        mode, holes = quiz_panel.session_options(state)
-        await self.start_quiz(interaction.channel, quiz, mode, holes)
+        await self.start_quiz(interaction.channel, quiz_panel.resolve(quiz, state))
 
     @commands.Cog.listener()
     async def on_voice_state_update(self, member, before, after):
@@ -522,12 +520,12 @@ class Quiz(commands.Cog):
         elif (message.guild is not None
               and message.channel.id == guild_settings.setting(
                   message.guild.id, 'QUIZ_CHANNEL_ID')):
-            await self._answer_in_channel(message, ("bq", "bhq", "cryq", "introq", "dexq", "noq"))
+            await self._answer_in_channel(message, ("bq", "bhq", "bvq", "cryq", "introq", "dexq", "noq"))
 
         # ボイスチャンネル付属のテキストチャット（鳴き声クイズへの回答）
         elif (message.guild is not None
               and voice_channel_for(message.channel) is not None):
-            await self._answer_in_channel(message, ("cryq", "introq", "bq", "bhq", "dexq", "noq"))
+            await self._answer_in_channel(message, ("cryq", "introq", "bq", "bhq", "bvq", "dexq", "noq"))
 
     async def _answer_in_channel(self, message, quiz_names):
         """チャンネルに書かれたポケモン名・曲名を、最新の未回答クイズへの回答にする。
@@ -535,7 +533,8 @@ class Quiz(commands.Cog):
         図鑑にも曲リストにも無い言葉（雑談など）は無視する（fetch_pokemon は
         見つからないと空のリストを返すので、真偽で判定する）。
         イントロクイズへは曲名だけ、図鑑番号を当てるクイズへは数字だけ、
-        種族値穴埋めクイズへは「b95d85」のような欄と数字（か数字だけ）、
+        種族値クイズの穴埋めへは「b95d85」のような欄と数字（か数字だけ）、
+        種族値あて（一番高い欄・すばやさ）へは数字だけ、
         ほかのクイズへはポケモン名だけを回答にする。
         """
         is_pokemon = bool(ub.fetch_pokemon(message.content))
@@ -546,7 +545,8 @@ class Quiz(commands.Cog):
             name for name in quiz_names
             if (is_track if name == "introq"
                 else (is_number or is_pokemon) if name == "noq"
-                else is_stats if name == "bhq" else is_pokemon)]
+                else is_stats if name == "bhq"
+                else is_number if name == "bvq" else is_pokemon)]
         if not quiz_names:
             return
         channel = message.channel

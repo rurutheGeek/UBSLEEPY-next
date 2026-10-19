@@ -109,58 +109,118 @@ def _holes(harness):
     return [i for i, value in enumerate(shown) if value is None]
 
 
-def _answer(stats, holes, wrong=()):
-    return "".join(
-        f"{stat_holes.LABELS[i]}{stats[i] + (1 if i in wrong else 0)}" for i in holes)
+def _label(stats, index, plus=0):
+    return f"{stat_holes.LABELS[index]}{stats[index] + plus}"
 
 
-def test_the_hole_quiz_takes_the_numbers(harness, monkeypatch, capsys):
+def test_the_hole_quiz_hides_the_name_and_fills_one_by_one(harness, monkeypatch, capsys):
     pokemon = _fix_pokemon(monkeypatch, "ガブリアス")
-    asyncio.run(harness.dispatch(["q", "bhq", "-", "2"]))
+    asyncio.run(harness.dispatch(["q", "bq", "穴埋め", "2"]))
     out = capsys.readouterr().out
-    assert "種族値穴埋めクイズ" in out
-    assert "**ガブリアス**" in out
+    assert "種族値クイズ（穴埋め）" in out
+    assert "ガブリアス" not in out  # 名前は出さない
     holes = _holes(harness)
     assert len(holes) == 2
     # 既定の出し方では、いちばん高い A130 とすばやさは穴にならない
     assert 1 not in holes and 5 not in holes
 
-    # 一部だけ合った誤答は、合った欄を教える
-    asyncio.run(harness.dispatch(["answer", _answer(pokemon.stats, holes, wrong=holes[1:])]))
+    # まちがった1枚は誤答。埋まらない
+    asyncio.run(harness.dispatch(["answer", _label(pokemon.stats, holes[0], 7)]))
     out = capsys.readouterr().out
     assert "bhq誤答" in out
-    assert f"{stat_holes.LABELS[holes[0]]} は 合ってるロ" in out
+    assert len(_holes(harness)) == 2
 
-    # 片方の穴だけでは判定しない（戦績に数えない）
-    asyncio.run(harness.dispatch(["answer", _answer(pokemon.stats, holes[:1])]))
+    # 1枚だけでも判定し、合えば埋める
+    asyncio.run(harness.dispatch(["answer", _label(pokemon.stats, holes[0]).lower()]))
     out = capsys.readouterr().out
-    assert "まとめて答えてね" in out
-    assert "bhq" not in out.split("まとめて")[1]
-
-    asyncio.run(harness.dispatch(["answer", _answer(pokemon.stats, holes).lower()]))
-    out = capsys.readouterr().out
-    assert "⭕" in out
     assert "bhq正答" in out
-    assert "こたえ: H108 A130" in out.replace("**", "")
+    assert _holes(harness) == holes[1:]
+    assert f"**{_label(pokemon.stats, holes[0])}**" in harness.quiz_message.content
+    assert "(done)" not in out
+
+    # 残り1枚は数字だけでもよい。全部埋まったら開示
+    asyncio.run(harness.dispatch(["answer", str(pokemon.stats[holes[1]])]))
+    out = capsys.readouterr().out
+    assert "bhq正答" in out
+    assert "ガブリアス" in out
+    assert "bhq(done)" in out
 
 
-def test_the_hole_quiz_takes_bare_numbers_and_gives_the_total(harness, monkeypatch, capsys):
-    pokemon = _fix_pokemon(monkeypatch, "ガブリアス")
-    asyncio.run(harness.dispatch(["q", "bhq"]))
+def test_the_hole_quiz_takes_any_pokemon_that_fits(harness, monkeypatch, capsys):
+    from bot_module.pokedex import get_pokedex
+
+    _fix_pokemon(monkeypatch, "ガブリアス")
+    asyncio.run(harness.dispatch(["q", "bq", "穴埋め", "3", "random"]))
+    shown = stat_holes.parse_shown(harness.quiz_message.content)
     holes = _holes(harness)
-    assert len(holes) == 1  # 既定は穴1つ
+    # 出題のもとと別のポケモンの値でも、見えている欄に合えば正解
+    fits = [p for p in get_pokedex().records if stat_holes.matches(p.stats, shown)]
+    other = fits[-1]
+    answer = "".join(_label(other.stats, i) for i in holes)
+    asyncio.run(harness.dispatch(["answer", answer]))
+    out = capsys.readouterr().out
+    assert out.count("bhq正答") == 3
+    assert other.name in out
+
+
+def test_the_hole_quiz_counts_each_slot(harness, monkeypatch, capsys):
+    pokemon = _fix_pokemon(monkeypatch, "ガブリアス")
+    asyncio.run(harness.dispatch(["q", "bq", "穴埋め", "2"]))
+    holes = _holes(harness)
+    answer = _label(pokemon.stats, holes[0]) + _label(pokemon.stats, holes[1], 7)
+    asyncio.run(harness.dispatch(["answer", answer]))
+    out = capsys.readouterr().out
+    assert "bhq正答" in out and "bhq誤答" in out
+    assert "は 合ってるロ" in out
+    assert _holes(harness) == holes[1:]
+
+
+def test_the_hole_quiz_ignores_slots_that_are_not_holes(harness, monkeypatch, capsys):
+    _fix_pokemon(monkeypatch, "ガブリアス")
+    asyncio.run(harness.dispatch(["q", "bq", "穴埋め", "1"]))
+    asyncio.run(harness.dispatch(["answer", "a130"]))  # A は穴でない
+    out = capsys.readouterr().out
+    assert "穴は" in out
+    assert "bhq" not in out.split("穴は")[0].split("[reaction]")[-1]
+
+
+def test_the_hole_quiz_hint_gives_the_totals(harness, monkeypatch, capsys):
+    _fix_pokemon(monkeypatch, "ガブリアス")
+    asyncio.run(harness.dispatch(["q", "bq", "穴埋め"]))
+    assert len(_holes(harness)) == 1  # 既定は穴1つ
     asyncio.run(harness.dispatch(["hint", "合計"]))
-    assert "合計は600です" in capsys.readouterr().out
-    asyncio.run(harness.dispatch(["answer", str(pokemon.stats[holes[0]])]))
-    assert "bhq正答" in capsys.readouterr().out
+    assert "合計は" in capsys.readouterr().out
 
 
 def test_the_random_hole_quiz_says_so_in_the_title(harness, monkeypatch, capsys):
     _fix_pokemon(monkeypatch, "ガブリアス")
-    asyncio.run(harness.dispatch(["q", "bhq", "穴の位置ランダム", "3"]))
+    asyncio.run(harness.dispatch(["q", "bq", "穴埋め", "3", "random"]))
     out = capsys.readouterr().out
-    assert "種族値穴埋めクイズ（穴の位置ランダム）" in out
+    assert "種族値クイズ（穴埋め・穴の位置ランダム）" in out
     assert len(_holes(harness)) == 3
+
+
+def test_the_value_quiz_asks_the_top_slot(harness, monkeypatch, capsys):
+    _fix_pokemon(monkeypatch, "ガブリアス")
+    asyncio.run(harness.dispatch(["q", "bq", "一番高い欄をあてる"]))
+    out = capsys.readouterr().out
+    assert "**ガブリアス** の **こうげき** の種族値は？" in out
+    asyncio.run(harness.dispatch(["answer", "120"]))
+    assert "bvq誤答" in capsys.readouterr().out
+    asyncio.run(harness.dispatch(["answer", "130"]))
+    out = capsys.readouterr().out
+    assert "bvq正答" in out
+    assert "**こうげき** は **130**" in out
+
+
+def test_the_value_quiz_asks_the_speed(harness, monkeypatch, capsys):
+    _fix_pokemon(monkeypatch, "ガブリアス")
+    asyncio.run(harness.dispatch(["q", "bq", "すばやさをあてる"]))
+    assert "**すばやさ** の種族値は？" in capsys.readouterr().out
+    asyncio.run(harness.dispatch(["answer", "すばやさ"]))
+    assert "数字で 答えてね" in capsys.readouterr().out
+    asyncio.run(harness.dispatch(["answer", "S102"]))
+    assert "bvq正答" in capsys.readouterr().out
 
 
 def test_the_stats_quiz_can_show_only_the_deciding_slots(harness, monkeypatch, capsys):

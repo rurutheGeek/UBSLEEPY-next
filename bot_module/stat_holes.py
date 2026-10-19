@@ -12,6 +12,7 @@ import unicodedata
 from collections import Counter
 
 LABELS = ("H", "A", "B", "C", "D", "S")
+NAMES = ("HP", "こうげき", "ぼうぎょ", "とくこう", "とくぼう", "すばやさ")
 SPEED = 5
 HOLE = "?"
 
@@ -28,11 +29,21 @@ PAIRS_ONLY_RE = re.compile(rf"(?:\s*(?:{_LABEL_RE})\s*[:：=]?\s*\d{{1,3}}[\s,�
 NUMBERS_ONLY_RE = re.compile(r"(?:\s*\d{1,3}[\s,、]*)+")
 
 
-def show(stats, holes) -> str:
-    """「H108 A130 B? C80 D? S102」の形。holes の欄は ? にする。"""
-    return " ".join(
-        f"{label}{HOLE if index in holes else value}"
-        for index, (label, value) in enumerate(zip(LABELS, stats)))
+def show(stats, holes, filled=()) -> str:
+    """「H108 A130 B? C80 D? S102」の形。holes の欄は ? に、filled の欄は太字にする。
+
+    stats の穴の欄は None でもよい（穴埋めの途中）。
+    """
+    cells = []
+    for index, (label, value) in enumerate(zip(LABELS, stats)):
+        cell = f"{label}{HOLE if index in holes or value is None else value}"
+        cells.append(f"**{cell}**" if index in filled else cell)
+    return " ".join(cells)
+
+
+def parse_filled(text) -> set:
+    """show の文字列から、太字の欄（穴埋めで埋まった欄）。"""
+    return {LABELS.index(label) for label in re.findall(r"\*\*([HABCDS])\d+\*\*", text or "")}
 
 
 def parse_shown(text):
