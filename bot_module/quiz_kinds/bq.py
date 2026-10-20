@@ -18,6 +18,7 @@ from bot_module.pokedex import get_pokedex
 from .base import NO_POKEMON, Draft, NameAnswerKind, pokemon_id
 
 MIN_MODE = "1匹に決まる欄だけ"
+MIN_TITLE = "一意の種族値クイズ"
 
 
 def all_stats() -> set:
@@ -47,7 +48,7 @@ class StatsQuiz(NameAnswerKind):
             # グラフは出さない（伏せた欄の大きさが形で分かってしまう）
             shown = random.choice(stat_holes.minimal_views(qDatas.stats, all_stats()))
             holes = tuple(index for index in range(6) if index not in shown)
-            embed.title = f"種族値クイズ（{MIN_MODE}）"
+            embed.title = MIN_TITLE
             content = stat_holes.show(qDatas.stats, holes)
             return Draft(content=content,
                          record=self.pokemon_record(qDatas, stats_key(qDatas.stats)),

@@ -113,7 +113,7 @@ def pinyin_to_text(cw: str) -> str:
   return " ".join(pinyins)
  
 
-def generate_graph(bss: list[int], name=None) -> str:
+def generate_graph(bss: list[int], name=None, holes=()) -> str:
     '''種族値グラフを生成する
     
     Parameters:
@@ -122,6 +122,9 @@ def generate_graph(bss: list[int], name=None) -> str:
         種族値のリスト
     name : str, optional
         グラフに表示する名前
+    holes : 伏せる欄（bss の並び H A B C D S の番号）, optional
+        むしくい種族値クイズ用。その欄から両どなりの軸までを板で隠し、値と合計を ? にする。
+        伏せた欄の値は使わない（None でもよい）
         
     Returns:
     ----------
@@ -131,9 +134,11 @@ def generate_graph(bss: list[int], name=None) -> str:
     output_log(f"{'-'.join(map(str, bss))}の種族値グラフを生成します")
     
     # 値の準備
-    values = [bss[0], bss[1], bss[2], bss[5], bss[4], bss[3]]  # HP, A, B, S, D, C の順
-    labels = [f'HP{values[0]}', f'A{values[1]}', f'B{values[2]}', 
-              f'S{values[3]}', f'D{values[4]}', f'C{values[5]}']
+    order = [0, 1, 2, 5, 4, 3]  # HP, A, B, S, D, C の順
+    hidden = [index in holes for index in order]
+    values = [0 if hide else bss[index] for index, hide in zip(order, hidden)]
+    labels = [f'{label}{"?" if hide else value}' for label, value, hide
+              in zip(['HP', 'A', 'B', 'S', 'D', 'C'], values, hidden)]
     
     # レーダーチャートのデータ準備
     radar_values = np.concatenate([values, [values[0]]])  # 多角形を閉じるため
@@ -173,9 +178,19 @@ def generate_graph(bss: list[int], name=None) -> str:
     # グラフの範囲とグリッド設定
     ax.set_rlim([min(rgrids), max(rgrids)])
     ax.grid(True, alpha=0.1)
-    
+
+    # 伏せた欄は、その軸から両どなりの軸まで（値で形が変わるところ）を板で隠す
+    width = 2 * np.pi / len(labels)
+    for angle, hide in zip(angles[:-1], hidden):
+        if hide:
+            theta = np.linspace(angle - width, angle + width, 60)
+            ax.fill_between(theta, 0, max(rgrids), color="burlywood", zorder=5,
+                            edgecolor="saddlebrown", linewidth=1)
+            ax.text(angle, max(rgrids) * 0.6, "?", fontsize=28, ha="center",
+                    va="center", zorder=6, color="saddlebrown")
+
     # タイトルの設定
-    total_stats = sum(values)
+    total_stats = "???" if any(hidden) else sum(values)
     if name is not None:
         ax.set_title(f"{name}\n合計{total_stats}", pad=20, fontsize=15)
     else:

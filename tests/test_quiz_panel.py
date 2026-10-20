@@ -183,3 +183,13 @@ def test_every_panel_fits_discord_limits():
                 assert len(child.custom_id) <= 100
                 if isinstance(child, discord.ui.Select):
                     assert all(len(o.label) <= 100 for o in child.options)
+
+
+def test_choices_fit_a_phone_and_explain_themselves():
+    # スマホでは選択肢の表示が24字くらいで切れる。くわしくは説明の欄へ
+    for fields in quiz_panel.FORMATS.values():
+        for field in fields:
+            for label, _value, description in field.choices:
+                assert len(label) <= 24, label
+                if len(field.choices) > 1 and field.key in ("mode", "pos"):
+                    assert description

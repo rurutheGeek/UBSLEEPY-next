@@ -37,29 +37,36 @@ NUMBER_FROM_NUMBER = "番号→ポケモン"
 class Field:
     key: str
     label: str
-    choices: tuple  # (表示, 値)。先頭が既定
+    choices: tuple  # (表示, 値, 説明)。先頭が既定。表示はスマホで切れないよう24字くらいまで
     when: tuple = ()  # (項目, 値)。その値を選んでいるときだけ出す
 
 
 FORMATS = {
     "bq": (
         Field("mode", "出し方", (
-            ("いつもの（グラフと種族値からポケモンをあてる）", DEFAULT),
-            (f"{MIN_MODE}（見せる欄が少ない）", MIN_MODE),
-            ("穴埋め（穴に数字を入れて、いるポケモンの種族値にする）", HOLE_MODE),
-            ("一番高い欄をあてる（ポケモンを見て数字を答える）", TOP_MODE),
-            ("すばやさをあてる（ポケモンを見て数字を答える）", SPEED_MODE),
+            ("種族値クイズ：グラフであてる", DEFAULT,
+             "種族値のグラフと数字を見て、ポケモンをあてる"),
+            ("むしくい種族値クイズ：穴をうめる", HOLE_MODE,
+             "穴のあいた種族値の穴に数字を入れて、いるポケモンの種族値にする"),
+            ("一意の種族値クイズ：少ない欄であてる", MIN_MODE,
+             "1匹に決まるだけの、いちばん少ない欄の種族値を見て、ポケモンをあてる"),
+            ("高いとこクイズ：一番高い値をあてる", TOP_MODE,
+             "ポケモンを見て、種族値のなかで一番高い値を答える"),
+            ("すばやさクイズ：すばやさをあてる", SPEED_MODE,
+             "ポケモンを見て、すばやさの種族値を答える"),
         )),
-        Field("holes", "穴の数", (("穴 1つ", "1"), ("穴 2つ", "2"), ("穴 3つ", "3")),
-              when=("mode", HOLE_MODE)),
+        Field("holes", "穴の数", (
+            ("穴の数：1つ", "1", None), ("穴の数：2つ", "2", None), ("穴の数：3つ", "3", None),
+        ), when=("mode", HOLE_MODE)),
         Field("pos", "穴の位置", (
-            ("手がかりの欄（いちばん高い欄・めずらしい値・すばやさ）は残す", DEFAULT),
-            ("どこでも（ランダム）", "random"),
+            ("穴の位置：目立つ値は見せる", DEFAULT,
+             "種族値で一番高い値・すばやさ・ほかのポケモンが持っていない値は穴にしない"),
+            ("穴の位置：どこでも", "random", "どの値も穴になる"),
         ), when=("mode", HOLE_MODE)),
     ),
     "noq": (Field("mode", "出し方", (
-        ("ポケモン → 番号", DEFAULT),
-        ("番号 → ポケモン", NUMBER_FROM_NUMBER),
+        ("ポケモン → 番号", DEFAULT, "ポケモンの名前を見て、図鑑番号を答える"),
+        ("番号 → ポケモン", NUMBER_FROM_NUMBER, "図鑑番号を見て、ポケモンを答える"),
     )),),
 }
 
@@ -109,8 +116,9 @@ def format_view(quiz_name, state: dict) -> discord.ui.View:
             custom_id=f"{SET_PREFIX}{quiz_name}:{field.key}",
             placeholder=field.label,
             options=[discord.SelectOption(label=label[:100], value=value,
+                                          description=description,
                                           default=value == current)
-                     for label, value in field.choices],
+                     for label, value, description in field.choices],
         ))
     view.add_item(discord.ui.Button(
         label="出題", style=discord.ButtonStyle.primary,

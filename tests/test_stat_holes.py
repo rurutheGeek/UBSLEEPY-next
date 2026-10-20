@@ -117,7 +117,7 @@ def test_the_hole_quiz_hides_the_name_and_fills_one_by_one(harness, monkeypatch,
     pokemon = _fix_pokemon(monkeypatch, "ガブリアス")
     asyncio.run(harness.dispatch(["q", "bq", "穴埋め", "2"]))
     out = capsys.readouterr().out
-    assert "種族値クイズ（穴埋め）" in out
+    assert "むしくい種族値クイズ" in out
     assert "ガブリアス" not in out  # 名前は出さない
     holes = _holes(harness)
     assert len(holes) == 2
@@ -196,7 +196,7 @@ def test_the_random_hole_quiz_says_so_in_the_title(harness, monkeypatch, capsys)
     _fix_pokemon(monkeypatch, "ガブリアス")
     asyncio.run(harness.dispatch(["q", "bq", "穴埋め", "3", "random"]))
     out = capsys.readouterr().out
-    assert "種族値クイズ（穴埋め・穴の位置ランダム）" in out
+    assert "むしくい種族値クイズ（穴はどこでも）" in out
     assert len(_holes(harness)) == 3
 
 
@@ -227,7 +227,7 @@ def test_the_stats_quiz_can_show_only_the_deciding_slots(harness, monkeypatch, c
     _fix_pokemon(monkeypatch, "ガブリアス")
     asyncio.run(harness.dispatch(["q", "bq", "1匹に決まる欄だけ"]))
     out = capsys.readouterr().out
-    assert "種族値クイズ（1匹に決まる欄だけ）" in out
+    assert "一意の種族値クイズ" in out
     assert "合計" not in harness.quiz_message.content
     assert len(_holes(harness)) >= 3  # ガブリアスは2欄で決まる
 
@@ -235,3 +235,33 @@ def test_the_stats_quiz_can_show_only_the_deciding_slots(harness, monkeypatch, c
     out = capsys.readouterr().out
     assert "bq正答" in out
     assert "H108 A130 B95 C80 D85 S102" in out
+
+
+def test_kept_slots_keep_values_no_other_pokemon_has():
+    others = {GARCHOMP, (108, 50, 95, 80, 85, 50), (60, 50, 95, 80, 85, 60)}
+    # H108 はほかにもいるので残さない。A130（一番高い・ほかにいない）と S102 は残す
+    assert stat_holes.unique_slots(GARCHOMP, others) == {1, 5}
+    assert 0 not in stat_holes.kept_slots(GARCHOMP, others)
+
+
+def test_the_hole_quiz_shows_a_graph_and_swaps_it(harness, monkeypatch, capsys):
+    import bot_module.quiz_kinds.bhq as bhq_module
+
+    drawn = []
+    real = bhq_module.ub.generate_graph
+
+    def generate_graph(bss, name=None, holes=()):
+        drawn.append(tuple(holes))
+        return real(bss, name, holes)
+
+    monkeypatch.setattr(bhq_module.ub, "generate_graph", generate_graph)
+    pokemon = _fix_pokemon(monkeypatch, "ガブリアス")
+    asyncio.run(harness.dispatch(["q", "bq", "穴埋め", "2"]))
+    holes = _holes(harness)
+    assert drawn == [tuple(holes)]  # 穴の欄を隠したグラフ
+    assert "file: image.png" in capsys.readouterr().out
+
+    asyncio.run(harness.dispatch(["answer", _label(pokemon.stats, holes[0])]))
+    assert drawn[-1] == tuple(holes[1:])  # 埋まった穴の板を外す
+    asyncio.run(harness.dispatch(["give"]))
+    assert drawn[-1] == ()  # 開示では隠さない

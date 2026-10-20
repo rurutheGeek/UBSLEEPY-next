@@ -63,23 +63,23 @@ def full_text(stats) -> str:
     return show(stats, ())
 
 
-def rare_slot(stats, all_stats) -> int:
-    """その値を持つ種族値がいちばん少ない欄（その欄の中で数える。同数なら前の欄）。"""
+def unique_slots(stats, all_stats) -> set:
+    """ほかのポケモンが持っていない値の欄（その欄の中で比べる。同じ種族値のフォームは1つと数える）。"""
     counts = [Counter(other[index] for other in all_stats) for index in range(6)]
-    return min(range(6), key=lambda index: counts[index][stats[index]])
+    return {index for index in range(6) if counts[index][stats[index]] <= 1}
 
 
 def kept_slots(stats, all_stats) -> set:
-    """手がかりとして残す欄: いちばん高い欄（同じ値は全部）・いちばんめずらしい値の欄・すばやさ。"""
+    """穴にしない目立つ欄: 一番高い値の欄（同じ値は全部）・すばやさ・ほかのポケモンが持っていない値の欄。"""
     top = max(stats)
     kept = {index for index, value in enumerate(stats) if value == top}
-    kept.add(rare_slot(stats, all_stats))
+    kept |= unique_slots(stats, all_stats)
     kept.add(SPEED)
     return kept
 
 
 def choose_holes(stats, count, all_stats, keep=True, rng=random) -> tuple:
-    """穴にする欄を count 個えらぶ。keep なら手がかりの欄を避ける（足りなければ使う）。"""
+    """穴にする欄を count 個えらぶ。keep なら目立つ欄（kept_slots）を避ける（足りなければ使う）。"""
     kept = kept_slots(stats, all_stats) if keep else set()
     free = [index for index in range(6) if index not in kept]
     rng.shuffle(free)

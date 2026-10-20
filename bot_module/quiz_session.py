@@ -372,10 +372,14 @@ class QuizSession:
         self.state.forget_quiz(
             getattr(getattr(self.qm, "channel", None), "id", None), self.qm.id)
 
+        files = self.kind.reveal_files(self)  # 差し替える添付（むしくいの隠さないグラフ）
         if isinstance(self.rm, discord.Message):
             try:
-                # 添付は消さない（鳴き声をもう一度聞けるように）
-                await self.qm.edit(embed=self.quizEmbed)
+                if files is not None:
+                    await self.qm.edit(embed=self.quizEmbed, attachments=files)
+                else:
+                    # 添付は消さない（鳴き声をもう一度聞けるように）
+                    await self.qm.edit(embed=self.quizEmbed)
             except discord.errors.Forbidden:
                 await self.qm.channel.send(embed=self.quizEmbed)
 
