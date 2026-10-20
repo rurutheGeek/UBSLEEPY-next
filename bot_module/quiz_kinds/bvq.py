@@ -19,6 +19,7 @@ from .base import LOST_ANSWER, NO_POKEMON, Draft, Judgement, PokemonKind
 
 TOP_MODE = "一番高い欄をあてる"
 SPEED_MODE = "すばやさをあてる"
+TITLES = {TOP_MODE: "高いとこクイズ", SPEED_MODE: "すばやさクイズ"}
 QUESTION_RE = re.compile(r"\*\*(.+?)\*\* の \*\*(.+?)\*\* の種族値は")
 # 「130」「A130」「こうげき130」「130です」くらいまで読む
 NUMBER_RE = re.compile(r"^\D{0,6}?(\d{1,3})\D{0,4}$")
@@ -45,7 +46,7 @@ class StatValueQuiz(PokemonKind):
             slot = stat_holes.SPEED
         else:
             slot = random.choice([i for i, v in enumerate(stats) if v == max(stats)])
-        embed.title = f"種族値クイズ（{self.mode(s)}）"
+        embed.title = TITLES[self.mode(s)]
         embed.description = (
             f"**{qDatas.name}** の **{stat_holes.NAMES[slot]}** の種族値は？\n"
             "数字で答えてね")
@@ -58,7 +59,7 @@ class StatValueQuiz(PokemonKind):
 
     def restore(self, s):
         title = s.quizEmbed.title or ""
-        s.mode = SPEED_MODE if SPEED_MODE in title else TOP_MODE
+        s.mode = SPEED_MODE if TITLES[SPEED_MODE] in title else TOP_MODE
 
     def hint_words(self, s):
         return HINT_WORDS

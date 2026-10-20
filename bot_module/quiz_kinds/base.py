@@ -126,6 +126,10 @@ class QuizKind:
     def reveal(self, s):
         """開示で s.quizEmbed の本文を書き換える。"""
 
+    def reveal_files(self, s):
+        """開示で添付を差し替えるなら、そのファイルのリスト。None は添付をそのまま残す。"""
+        return None
+
     def image_link(self, search_word=None) -> str:
         """サムネイルの画像。名前が無ければ (?) マーク。"""
         ub.output_log(f"{self.name}: 画像リンク生成を実行")

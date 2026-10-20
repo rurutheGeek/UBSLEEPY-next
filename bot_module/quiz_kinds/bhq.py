@@ -9,11 +9,13 @@
 - まとめて答えたときは、穴の順に1枚ずつ判定する（先に埋めた値で当てはまるポケモンが絞られる）。
 - 穴がみな埋まったら、当てはまるポケモンを答えとして開示する。
 - 答え方は「b95」「ぼうぎょ95」、残りの穴が1つなら数字だけでもよい。
-- 穴の数（1〜3）・穴の位置（既定は手がかりの欄を避ける。RANDOM_MODE ではどこでも）は
+- 穴の数（1〜3）・穴の位置（既定は目立つ値＝一番高い値・すばやさ・ほかのポケモンが持っていない値を
+  穴にしない。RANDOM_MODE ではどこでも）は
   /q の出題形式パネルで選ぶ。穴の位置はタイトルから、穴の数は本文から見分ける。
 """
 import discord
 
+from bot_module import func as ub
 from bot_module import stat_holes
 from bot_module.pokedex import get_pokedex
 
@@ -22,13 +24,19 @@ from .bq import all_stats
 
 RANDOM_MODE = "穴の位置ランダム"
 DEFAULT_HOLES = 1
-TITLE = "種族値クイズ（穴埋め{}）"
+TITLE = "むしくい種族値クイズ"
+RANDOM_TITLE = "（穴はどこでも）"  # 穴の位置がどこでもの問題（タイトルから見分ける）
 REVEAL_LIMIT = 5  # 開示で種族値まで並べるポケモンの数
 HINT_WORDS = ["ヒント", "合計", "ゴウケイ"]
 
 
 def hole_names(holes) -> str:
     return "・".join(stat_holes.LABELS[index] for index in holes)
+
+
+def graph_file(stats, holes=()):
+    """種族値グラフ。穴の欄は板で隠す（ub.generate_graph の holes）。"""
+    return discord.File(ub.generate_graph(list(stats), holes=holes), filename="image.png")
 
 
 def candidates(shown) -> list:
@@ -49,13 +57,14 @@ class StatHoleQuiz(PokemonKind):
         count = getattr(s, "holes", None) or DEFAULT_HOLES
         holes = stat_holes.choose_holes(
             qDatas.stats, count, all_stats(), keep=not self.is_random(s))
-        embed.title = TITLE.format(f"・{RANDOM_MODE}" if self.is_random(s) else "")
+        embed.title = TITLE + (RANDOM_TITLE if self.is_random(s) else "")
         embed.description = (
             "穴に数字を入れて、いるポケモンの種族値にしてね\n"
             f"答え方: `{self.example(holes)}`（1つずつでも、まとめてでもOK）")
         embed.set_thumbnail(url=self.image_link())  # 正解まで (?) マーク
+        embed.set_image(url="attachment://image.png")
         content = stat_holes.show(qDatas.stats, holes)
-        return Draft(content=content,
+        return Draft(content=content, file=graph_file(qDatas.stats, holes),
                      record=self.pokemon_record(qDatas, content),
                      extra={"holes": holes})
 
@@ -69,13 +78,15 @@ class StatHoleQuiz(PokemonKind):
             "絞り込み": s.state.bq_filter_dict,
             "出し方": "穴埋め",
             "穴の数": len(draft.extra["holes"]),
-            "穴の位置": RANDOM_MODE if self.is_random(s) else "手がかりの欄を残す",
+            "穴の位置": "どこでも" if self.is_random(s) else "目立つ値は見せる",
             "穴": hole_names(draft.extra["holes"]),
         }
 
     def restore(self, s):
+        # 取得し直したEmbedの画像はCDNのURLになっている。添付への参照に戻す（bq と同じ）
+        s.quizEmbed.set_image(url="attachment://image.png")
         title = s.quizEmbed.title or ""
-        s.mode = RANDOM_MODE if RANDOM_MODE in title else None
+        s.mode = RANDOM_MODE if RANDOM_TITLE in title else None
         content = s.qm.content or ""
         shown = stat_holes.parse_shown(content) or ()
         holes = sum(value is None for value in shown) + len(stat_holes.parse_filled(content))
@@ -172,7 +183,10 @@ class StatHoleQuiz(PokemonKind):
         found = candidates(shown)
         s.ansList, s.ansZero = [p.name for p in found], found[0]
         if None in shown:
-            await s.qm.edit(content=content)  # 埋めた穴を見せる（添付・Embedはそのまま）
+            # 埋めた穴を見せる。グラフも、残った穴だけ隠したものに差し替える
+            holes = [i for i, value in enumerate(shown) if value is None]
+            await s.qm.edit(content=content, embed=s.quizEmbed,
+                            attachments=[graph_file(shown, holes)])
             return True
         await s.qm.edit(content=content)
         await s.disclose(True, found[0].name)
@@ -205,6 +219,10 @@ class StatHoleQuiz(PokemonKind):
             lines.append(f"ほか {len(rows) - REVEAL_LIMIT}通り")
         s.quizEmbed.description = "こたえ:\n" + "\n".join(lines)
         s.quizEmbed.set_thumbnail(url=self.image_link(found[0].name))
+
+    def reveal_files(self, s):
+        # 隠さないグラフにする（穴が残っていれば、当てはまるポケモンの1匹目）
+        return [graph_file(candidates(s.shownStats)[0].stats)]
 
     def log_question(self, s, exAns):
         return s.examText, exAns
