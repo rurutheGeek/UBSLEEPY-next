@@ -1318,3 +1318,23 @@ def test_a_name_shared_by_two_pokemon_is_judged_by_the_answer(monkeypatch):
     asyncio.run(q._QuizSession__judge())
 
     assert disclosed == [(True, 'ミノマダム')]
+
+
+def test_a_trainer_name_in_the_channel_answers_the_trainer_quiz(monkeypatch):
+    # チャンネルにそのまま書いたトレーナーの名前は、トレーナークイズへの回答になる
+    from bot_module import trainer_quiz
+    from bot_module.pokedex import get_pokedex
+
+    rows = [("0320", "エメラルド", "ROXANNE_1", "ジムリーダー", "ジムリーダー", "ツツジ",
+             1, "0074", "00", 12, None)]
+    monkeypatch.setattr(trainer_quiz, "_CATALOG", trainer_quiz.TrainerCatalog(rows, get_pokedex()))
+    monkeypatch.setattr(quiz_module.ub, "fetch_pokemon", lambda text: [])
+    bot = FakeBot()
+    cog, answered = _answering_cog(monkeypatch, bot)
+    post = _quiz_post(bot, 500, footer="No.26 ポケモンクイズ - trq")
+    channel = CountingChannel([post], channel_id=QUIZ_CHANNEL_ID)
+
+    asyncio.run(cog.on_message(FakeMessage(author=FakeUser(), content="ちがう", channel=channel)))
+    asyncio.run(cog.on_message(FakeMessage(author=FakeUser(), content="つつじ", channel=channel)))
+
+    assert answered == [("trq", 500)]

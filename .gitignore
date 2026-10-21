@@ -8,6 +8,7 @@
 /resource/intro
 /resource/pokedex_text.csv
 /resource/pokedex_evolution.csv
+/resource/quiz_trainers.csv
 
 #bot上で変更されるファイルは同期しない(まとめるべきかも)
 /resource/pokemon_senryu.csv

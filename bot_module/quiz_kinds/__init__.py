@@ -16,6 +16,7 @@ from .introq import IntroQuiz
 from .noq import NumberQuiz
 from .translate import (
     ChineseToJapaneseQuiz, EnglishToJapaneseQuiz, JapaneseToEnglishQuiz)
+from .trq import TrainerQuiz
 
 KINDS = {
     "bq": StatsQuiz,
@@ -29,6 +30,7 @@ KINDS = {
     "dexq": DexTextQuiz,
     "noq": NumberQuiz,
     "introq": IntroQuiz,
+    "trq": TrainerQuiz,
 }
 
 
