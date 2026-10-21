@@ -34,6 +34,7 @@
 - クイズは `/q`（種別を選択。旧 `/bq` 相当）・`/quizrecord`・`/bmode`
 - `/quizrecord`（旧 `/quizrate`）は戦績に加えて、間違えた・ギブアップした問題を多い順に表示します（ほかのメンバーの分も見られます）。苦手は回答のたびに残す判定ログ `quiz_log` から集計するので、DBが要ります
 - イントロクイズ（`/q` の種別。曲の冒頭10秒を聞いて「作品の略称＋戦う相手」で答える。例: `BWシロナ`。略称・言い換えは `resource/intro_works.csv`・`intro_words.csv`。別名・ほかに流れる作品・シークレットは pkdb の `app_intro_*` 表にあり、`python tools/intro_db.py` で直すと配備なしで1分以内に反映されます。`resource/intro_aliases.csv` などは pkdb が使えないときの控え）。作品と区分（戦闘／フィールド）で絞り込めます（`/introdata`。ほかのクイズの `/bqdata`・`/crydata` と同じ）。音源は `python tools/build_intro_clips.py <アルバムのフォルダ>` で `resource/intro/` に用意します（ffmpegが必要。Gitには入れません）
+- トレーナークイズ（`/q` の種別。手持ちのポケモンの名前とレベルを見て、トレーナーの名前で答える。手持ちは pkdb の `app_quiz_trainer` 表から読み、pkdb につながない手元は `python tools/fetch_quiz_trainers.py` で書き出す `resource/quiz_trainers.csv` を使います）
 - `/search` を追加（タイプ・種族値などの条件検索。未記入でGUI）
 - `/channel` はDB保存に（旧: config.json 書き換え）。`/role` を追加
 - 旧 `/wish`（フィードバック）は廃止。問い合わせは [GitHub Issues](https://github.com/rurutheGeek/UBSLEEPY-next/issues) へ

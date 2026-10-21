@@ -20,6 +20,7 @@ from bot_module import dex_text
 from bot_module import intro
 from bot_module.pokedex import get_pokedex
 from bot_module import stat_holes
+from bot_module import trainer_quiz
 from bot_module import quiz_panel
 from bot_module.quiz_kinds.cryq import (
     CRY_DIRECTORY, CRY_MODE_LABELS, CRY_REPLAY_BUTTON_ID,
@@ -225,8 +226,9 @@ class Quiz(commands.Cog):
     async def on_ready(self):
         # 起動時と再接続時に図鑑カタログを用意する（pkdbが無ければCSV）
         get_pokedex()
-        # 図鑑説明クイズの説明文も先に読んでおく（最初の出題を待たせない）
+        # 図鑑説明クイズの説明文・トレーナークイズの手持ちも先に読んでおく（最初の出題を待たせない）
         await asyncio.to_thread(dex_text.get_catalog)
+        await asyncio.to_thread(trainer_quiz.get_catalog)
 
     @discord.app_commands.command(
         name="q", description="クイズを出題します（クイズ・出し方は出てくるメニューで選べます）")
@@ -520,12 +522,12 @@ class Quiz(commands.Cog):
         elif (message.guild is not None
               and message.channel.id == guild_settings.setting(
                   message.guild.id, 'QUIZ_CHANNEL_ID')):
-            await self._answer_in_channel(message, ("bq", "bhq", "bvq", "cryq", "introq", "dexq", "noq"))
+            await self._answer_in_channel(message, ("bq", "bhq", "bvq", "cryq", "introq", "dexq", "noq", "trq"))
 
         # ボイスチャンネル付属のテキストチャット（鳴き声クイズへの回答）
         elif (message.guild is not None
               and voice_channel_for(message.channel) is not None):
-            await self._answer_in_channel(message, ("cryq", "introq", "bq", "bhq", "bvq", "dexq", "noq"))
+            await self._answer_in_channel(message, ("cryq", "introq", "bq", "bhq", "bvq", "dexq", "noq", "trq"))
 
     async def _answer_in_channel(self, message, quiz_names):
         """チャンネルに書かれたポケモン名・曲名を、最新の未回答クイズへの回答にする。
@@ -535,15 +537,21 @@ class Quiz(commands.Cog):
         イントロクイズへは曲名だけ、図鑑番号を当てるクイズへは数字だけ、
         種族値クイズの穴埋めへは「b95d85」のような欄と数字（か数字だけ）、
         種族値あて（一番高い欄・すばやさ）へは数字だけ、
+        トレーナークイズへは出題するトレーナーの名前だけ、
         ほかのクイズへはポケモン名だけを回答にする。
         """
         is_pokemon = bool(ub.fetch_pokemon(message.content))
         is_track = "introq" in quiz_names and bool(intro.find_tracks(message.content))
         is_number = parse_number(message.content) is not None
         is_stats = stat_holes.looks_like_answer(message.content)
+        # 手持ちを読めていないときに、書き込みのたびに pkdb へ読みに行かない
+        trainers = trainer_quiz.loaded_catalog()
+        is_trainer = ("trq" in quiz_names and trainers is not None
+                      and trainers.is_trainer(message.content))
         quiz_names = [
             name for name in quiz_names
             if (is_track if name == "introq"
+                else is_trainer if name == "trq"
                 else (is_number or is_pokemon) if name == "noq"
                 else is_stats if name == "bhq"
                 else is_number if name == "bvq" else is_pokemon)]
