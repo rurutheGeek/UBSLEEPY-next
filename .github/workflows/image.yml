@@ -1,11 +1,16 @@
 name: Image
 
-# main へのマージ時に実行イメージをビルドし、コミットIDのタグで GHCR へ出す。
+# main へのマージ時に実行イメージをビルドし、コミットIDのタグと main のタグで GHCR へ出す。
 # 配備先（apps-01）はこのタグを取得するだけで、ホスト上ではビルドしない。
+# ベースの python:3.13 の OS の修正を取り込むため、毎週ベースから作り直す（手でも流せる）。
+# apextox の毎晩の自動更新が main のタグを追い、digest が変われば人が見る PR を出す。
 on:
   push:
     branches:
       - main
+  schedule:
+    - cron: '0 18 * * 0'  # 毎週月曜 3:00（日本時間）
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -32,7 +37,13 @@ jobs:
           context: .
           file: setup/Dockerfile
           push: true
-          tags: ghcr.io/ruruthegeek/ubsleepy-next:${{ github.sha }}
+          tags: |
+            ghcr.io/ruruthegeek/ubsleepy-next:${{ github.sha }}
+            ghcr.io/ruruthegeek/ubsleepy-next:main
+          # ベースを毎回レジストリから取り直す（古いベースの層を使わない）。
+          pull: true
+          # 作り直しのとき、apt と pip の層も前のものを使わない。
+          no-cache: ${{ github.event_name != 'push' }}
           build-args: |
             GIT_SHA=${{ github.sha }}
           cache-from: type=gha
